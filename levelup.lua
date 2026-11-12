@@ -1,7 +1,7 @@
 
 --==================================================
 -- kinghyunwoo LEVEL UP
--- FULL INTEGRATED TEST VERSION
+-- GUI + LEVEL DETECTION + QUEST + ATTACK
 --==================================================
 
 local Players = game:GetService("Players")
@@ -18,15 +18,10 @@ local Settings = {
     QuestDistance = 12,
     MonsterDistance = 18,
     AttackInterval = 0.4,
-    QuestInterval = 3,
+    QuestInterval = 3
 }
 
 local SkillKeys = {"Z", "X", "C", "V", "E"}
-local SkillLastUsed = {}
-for _, key in ipairs(SkillKeys) do
-    SkillLastUsed[key] = 0
-end
-
 local LastAttack = 0
 local LastQuestAction = 0
 local CurrentLevel = nil
@@ -49,11 +44,11 @@ local Gui = Instance.new("ScreenGui")
 Gui.Name = "kinghyunwoo_LevelUp"
 Gui.ResetOnSpawn = false
 
-local ok = pcall(function()
+local success = pcall(function()
     Gui.Parent = CoreGui
 end)
 
-if not ok or not Gui.Parent then
+if not success or not Gui.Parent then
     Gui.Parent = Player:WaitForChild("PlayerGui")
 end
 
@@ -81,7 +76,6 @@ end
 
 local Title = MakeLabel("kinghyunwoo LEVEL UP", 5, 30)
 Title.TextSize = 17
-Title.Font = Enum.Font.GothamBold
 
 local Close = Instance.new("TextButton")
 Close.Size = UDim2.new(0, 30, 0, 28)
@@ -122,7 +116,9 @@ Toggle.MouseButton1Click:Connect(function()
     Toggle.Text = Settings.Enabled
         and "자동 레벨업 : ON"
         or "자동 레벨업 : OFF"
-    StatusLabel.Text = Settings.Enabled and "상태: 작동 중" or "상태: OFF"
+    StatusLabel.Text = Settings.Enabled
+        and "상태: 작동 중"
+        or "상태: OFF"
 end)
 
 Minimize.MouseButton1Click:Connect(function()
@@ -158,21 +154,9 @@ local function GetRoot()
     return character and character:FindFirstChild("HumanoidRootPart")
 end
 
-local function ParseNumber(value)
-    if not value then return nil end
-    local n = tostring(value):gsub(",", ""):match("^%s*(%d+)%s*$")
-    n = tonumber(n)
-
-    if n and n >= 1 and n <= 1000000 then
-        return n
-    end
-
-    return nil
-end
-
 --==================================================
 -- LEVEL DETECTION
--- 실제 HUD: 화면 하단 중앙의 노란색 숫자
+-- 200이 들어 있는 leaderstats는 사용하지 않음
 --==================================================
 
 local function FindLevel()
@@ -180,7 +164,9 @@ local function FindLevel()
     if not camera then return nil end
 
     local viewport = camera.ViewportSize
-    if viewport.X <= 0 or viewport.Y <= 0 then return nil end
+    if viewport.X <= 0 or viewport.Y <= 0 then
+        return nil
+    end
 
     local candidates = {}
 
@@ -195,9 +181,13 @@ local function FindLevel()
 
         for _, obj in ipairs(descendants) do
             if obj:IsA("TextLabel") or obj:IsA("TextButton") then
-                local number = ParseNumber(obj.Text)
+                local text = tostring(obj.Text or "")
+                local numberText = text:gsub(",", "")
+                local number = tonumber(
+                    numberText:match("^%s*(%d+)%s*$")
+                )
 
-                if number then
+                if number and number >= 1 and number <= 1000000 then
                     local color = obj.TextColor3
                     local pos = obj.AbsolutePosition
                     local size = obj.AbsoluteSize
@@ -218,7 +208,7 @@ local function FindLevel()
                     if yellow and correctPosition then
                         table.insert(candidates, {
                             Level = number,
-                            Score = color.R + color.G,
+                            Score = color.R + color.G
                         })
                     end
                 end
@@ -226,8 +216,10 @@ local function FindLevel()
         end
     end
 
-    Scan(Player:FindFirstChildOfClass("PlayerGui"))
-    Scan(CoreGui)
+    pcall(function()
+        Scan(Player:FindFirstChildOfClass("PlayerGui"))
+        Scan(CoreGui)
+    end)
 
     table.sort(candidates, function(a, b)
         return a.Score > b.Score
@@ -237,22 +229,7 @@ local function FindLevel()
         return candidates[1].Level
     end
 
-    -- HUD 탐색 실패 시 이름이 명확한 leaderstats만 사용
-    local stats = Player:FindFirstChild("leaderstats")
-
-    if stats then
-        for _, obj in ipairs(stats:GetDescendants()) do
-            local name = obj.Name:lower()
-
-            if name == "level" or name == "lv" then
-                local value = tonumber(obj.Value)
-                if value and value > 0 then
-                    return value
-                end
-            end
-        end
-    end
-
+    -- 중요: 잘못된 200을 가져오는 대체 인식 없음
     return nil
 end
 
@@ -263,6 +240,7 @@ end
 local function GetVisibleTextObjects()
     local result = {}
     local playerGui = Player:FindFirstChildOfClass("PlayerGui")
+
     if not playerGui then return result end
 
     for _, obj in ipairs(playerGui:GetDescendants()) do
@@ -282,12 +260,14 @@ local function ReadRequiredLevel(text)
         "required%s*level%s*:?%s*(%d+)",
         "level%s*:?%s*(%d+)",
         "lv%.?%s*(%d+)",
-        "(%d+)%s*level",
+        "(%d+)%s*level"
     }
 
     for _, pattern in ipairs(patterns) do
         local value = text:match(pattern)
-        if value then return tonumber(value) end
+        if value then
+            return tonumber(value)
+        end
     end
 
     return nil
@@ -314,14 +294,6 @@ local function FindBestQuestButton()
     return bestButton, bestLevel
 end
 
-local function ClickButton(button)
-    if not button then return false end
-
-    return pcall(function()
-        button:Activate()
-    end)
-end
-
 local function TryQuest()
     if os.clock() - LastQuestAction < Settings.QuestInterval then
         return
@@ -333,7 +305,9 @@ local function TryQuest()
 
     if button then
         QuestLabel.Text = "퀘스트: 선택 중 (" .. required .. ")"
-        ClickButton(button)
+        pcall(function()
+            button:Activate()
+        end)
     else
         QuestLabel.Text = "퀘스트: NPC 탐색 중"
     end
@@ -351,7 +325,8 @@ local function FindQuestNPC()
 
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("ProximityPrompt") then
-            local model = obj.Parent and obj.Parent:FindFirstAncestorOfClass("Model")
+            local model = obj.Parent
+                and obj.Parent:FindFirstAncestorOfClass("Model")
 
             if model then
                 local name = (
@@ -365,10 +340,11 @@ local function FindQuestNPC()
                         or model:FindFirstChildWhichIsA("BasePart")
 
                     if part then
-                        local d = (root.Position - part.Position).Magnitude
+                        local distance =
+                            (root.Position - part.Position).Magnitude
 
-                        if d < bestDistance then
-                            bestDistance = d
+                        if distance < bestDistance then
+                            bestDistance = distance
                             best = {Part = part, Prompt = obj}
                         end
                     end
@@ -393,7 +369,7 @@ local function InteractQuestNPC()
     local npc = FindQuestNPC()
 
     if not npc then
-        QuestLabel.Text = "퀘스트: NPC를 찾지 못함"
+        QuestLabel.Text = "퀘스트: NPC 탐색 실패"
         return
     end
 
@@ -417,7 +393,7 @@ local function InteractQuestNPC()
 end
 
 --==================================================
--- QUEST TARGET TEXT
+-- QUEST TARGET
 --==================================================
 
 local function ReadQuestTarget()
@@ -436,7 +412,9 @@ local function ReadQuestTarget()
             target = target:gsub("^%s+", "")
             target = target:gsub("%s+$", "")
 
-            if #target > 2 then return target end
+            if #target > 2 then
+                return target
+            end
         end
     end
 
@@ -470,10 +448,11 @@ local function FindMonster()
                 end
 
                 if matches then
-                    local d = (root.Position - monsterRoot.Position).Magnitude
+                    local distance =
+                        (root.Position - monsterRoot.Position).Magnitude
 
-                    if d < bestDistance then
-                        bestDistance = d
+                    if distance < bestDistance then
+                        bestDistance = distance
                         best = obj
                     end
                 end
@@ -493,7 +472,9 @@ local function GetEquippedTool()
     if not character then return nil end
 
     for _, obj in ipairs(character:GetChildren()) do
-        if obj:IsA("Tool") then return obj end
+        if obj:IsA("Tool") then
+            return obj
+        end
     end
 
     return nil
@@ -520,7 +501,6 @@ end
 
 --==================================================
 -- SKILLS
--- 쿨타임 UI 구조가 확인되지 않아 자동 입력은 보류
 --==================================================
 
 local function PressKey(key)
@@ -532,8 +512,7 @@ local function PressKey(key)
 end
 
 local function IsSkillReady(key)
-    -- 실제 쿨타임 표시를 확인하지 못했으므로
-    -- 준비 상태를 임의로 true로 판정하지 않음.
+    -- 실제 쿨타임 UI 확인 전에는 스킬 난사 방지
     return false
 end
 
@@ -543,7 +522,6 @@ local function UseSkills()
     for _, key in ipairs(SkillKeys) do
         if IsSkillReady(key) then
             PressKey(key)
-            SkillLastUsed[key] = os.clock()
         end
     end
 end
@@ -559,6 +537,7 @@ task.spawn(function()
 
             if CurrentLevel then
                 LevelLabel.Text = "현재 레벨: " .. CurrentLevel
+                StatusLabel.Text = "상태: 레벨 인식 성공"
 
                 local target = FindMonster()
 
@@ -578,7 +557,7 @@ task.spawn(function()
 
                             if distance > Settings.MonsterDistance then
                                 MoveTo(monsterRoot.Position)
-                                AttackLabel.Text = "공격: 몬스터 접근 중"
+                                AttackLabel.Text = "공격: 접근 중"
                             else
                                 BasicAttack()
                                 UseSkills()
@@ -591,7 +570,7 @@ task.spawn(function()
                     InteractQuestNPC()
                 end
             else
-                LevelLabel.Text = "레벨: 인식 실패"
+                LevelLabel.Text = "레벨: HUD 인식 실패"
                 StatusLabel.Text = "상태: 레벨 탐색 중"
             end
         end
