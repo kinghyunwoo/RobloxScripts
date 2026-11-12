@@ -1,8 +1,7 @@
 
 --==================================================
 -- kinghyunwoo LEVEL UP
--- GUI ONLY V3
--- MOBILE MINIMIZE / EXPAND FIX
+-- GUI + AUTO LEVEL DETECTION V4
 --==================================================
 
 local Players = game:GetService("Players")
@@ -20,7 +19,10 @@ pcall(function()
     Player.PlayerGui:FindFirstChild("kinghyunwoo_LEVELUP"):Destroy()
 end)
 
+--==================================================
 -- GUI 생성
+--==================================================
+
 local Gui = Instance.new("ScreenGui")
 Gui.Name = "kinghyunwoo_LEVELUP"
 Gui.ResetOnSpawn = false
@@ -34,7 +36,6 @@ if not success or not Gui.Parent then
     Gui.Parent = Player:WaitForChild("PlayerGui")
 end
 
--- 메인 창
 local Main = Instance.new("Frame")
 Main.Name = "Main"
 Main.Size = UDim2.fromOffset(300, 300)
@@ -51,7 +52,7 @@ Stroke.Color = Color3.fromRGB(70, 190, 150)
 Stroke.Thickness = 1.5
 Stroke.Parent = Main
 
--- 상단 표시줄
+-- 상단 바
 local Header = Instance.new("Frame")
 Header.Name = "Header"
 Header.Size = UDim2.new(1, 0, 0, 42)
@@ -62,7 +63,7 @@ Header.Parent = Main
 
 Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 12)
 
--- 제목 / 드래그 영역
+-- 제목
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, -90, 1, 0)
 Title.Position = UDim2.fromOffset(12, 0)
@@ -86,7 +87,6 @@ Minimize.Text = "-"
 Minimize.TextColor3 = Color3.new(1, 1, 1)
 Minimize.TextSize = 20
 Minimize.Font = Enum.Font.GothamBold
-Minimize.AutoButtonColor = true
 Minimize.Active = true
 Minimize.ZIndex = 5
 Minimize.Parent = Header
@@ -110,17 +110,17 @@ Close.Parent = Header
 Instance.new("UICorner", Close).CornerRadius = UDim.new(0, 6)
 
 -- 레벨 표시
-local Level = Instance.new("TextLabel")
-Level.Size = UDim2.new(1, -24, 0, 35)
-Level.Position = UDim2.fromOffset(12, 52)
-Level.BackgroundColor3 = Color3.fromRGB(38, 48, 60)
-Level.Text = "현재 레벨: 인식 대기 중"
-Level.TextColor3 = Color3.fromRGB(110, 255, 195)
-Level.TextSize = 17
-Level.Font = Enum.Font.GothamBold
-Level.Parent = Main
+local LevelLabel = Instance.new("TextLabel")
+LevelLabel.Size = UDim2.new(1, -24, 0, 35)
+LevelLabel.Position = UDim2.fromOffset(12, 52)
+LevelLabel.BackgroundColor3 = Color3.fromRGB(38, 48, 60)
+LevelLabel.Text = "현재 레벨: 인식 중..."
+LevelLabel.TextColor3 = Color3.fromRGB(110, 255, 195)
+LevelLabel.TextSize = 17
+LevelLabel.Font = Enum.Font.GothamBold
+LevelLabel.Parent = Main
 
-Instance.new("UICorner", Level).CornerRadius = UDim.new(0, 8)
+Instance.new("UICorner", LevelLabel).CornerRadius = UDim.new(0, 8)
 
 -- 상태 표시
 local Status = Instance.new("TextLabel")
@@ -184,13 +184,123 @@ Toggle.Activated:Connect(function()
 end)
 
 --==================================================
--- MINIMIZE / EXPAND
+-- 레벨 인식 함수
+--==================================================
+
+local function FindLevel()
+
+    local Camera = workspace.CurrentCamera
+    if not Camera then
+        return nil
+    end
+
+    local Viewport = Camera.ViewportSize
+
+    local candidates = {}
+
+    local function Scan(container)
+        if not container then
+            return
+        end
+
+        for _, obj in ipairs(container:GetDescendants()) do
+
+            if obj:IsA("TextLabel") or obj:IsA("TextButton") then
+
+                local rawText = tostring(obj.Text or "")
+                local cleanText = rawText:gsub(",", ""):gsub("%s+", "")
+
+                -- 숫자만 있는 텍스트
+                if cleanText:match("^%d+$") then
+
+                    local number = tonumber(cleanText)
+
+                    if number and number >= 1 and number <= 1000000 then
+
+                        local color = obj.TextColor3
+
+                        -- 노란색 글자 검사
+                        if color.R > 0.65
+                            and color.G > 0.35
+                            and color.B < 0.45 then
+
+                            local pos = obj.AbsolutePosition
+                            local size = obj.AbsoluteSize
+
+                            local centerX =
+                                (pos.X + size.X / 2) / Viewport.X
+
+                            local centerY =
+                                (pos.Y + size.Y / 2) / Viewport.Y
+
+                            -- 화면 하단 중앙 영역
+                            if centerX >= 0.42
+                                and centerX <= 0.57
+                                and centerY >= 0.70
+                                and centerY <= 0.82 then
+
+                                local colorScore =
+                                    color.R + color.G - color.B
+
+                                local distance =
+                                    math.abs(centerX - 0.495)
+                                    + math.abs(centerY - 0.76)
+
+                                local score =
+                                    colorScore - distance
+
+                                table.insert(candidates, {
+                                    Level = number,
+                                    Score = score
+                                })
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    Scan(Player:FindFirstChildOfClass("PlayerGui"))
+    Scan(CoreGui)
+
+    table.sort(candidates, function(a, b)
+        return a.Score > b.Score
+    end)
+
+    return candidates[1] and candidates[1].Level or nil
+end
+
+--==================================================
+-- 실시간 레벨 업데이트
+--==================================================
+
+task.spawn(function()
+
+    while Gui.Parent do
+
+        local level = FindLevel()
+
+        if level then
+            LevelLabel.Text = "현재 레벨: " .. tostring(level)
+            LevelLabel.TextColor3 = Color3.fromRGB(110, 255, 195)
+        else
+            LevelLabel.Text = "현재 레벨: 인식 실패"
+            LevelLabel.TextColor3 = Color3.fromRGB(255, 120, 120)
+        end
+
+        task.wait(1)
+    end
+end)
+
+--==================================================
+-- 축소 / 확대
 --==================================================
 
 local minimized = false
 
 local ContentObjects = {
-    Level,
+    LevelLabel,
     Status,
     Quest,
     Monster,
@@ -199,6 +309,7 @@ local ContentObjects = {
 }
 
 local function SetMinimized(state)
+
     minimized = state
 
     for _, object in ipairs(ContentObjects) do
@@ -219,7 +330,7 @@ Minimize.Activated:Connect(function()
 end)
 
 --==================================================
--- CLOSE
+-- 닫기
 --==================================================
 
 Close.Activated:Connect(function()
@@ -228,8 +339,7 @@ Close.Activated:Connect(function()
 end)
 
 --==================================================
--- MOBILE / PC DRAG
--- 제목 부분만 드래그 가능
+-- 모바일 / PC 드래그
 --==================================================
 
 do
@@ -239,6 +349,7 @@ do
     local activeInput
 
     Title.InputBegan:Connect(function(input)
+
         if input.UserInputType == Enum.UserInputType.MouseButton1
             or input.UserInputType == Enum.UserInputType.Touch then
 
@@ -250,6 +361,7 @@ do
     end)
 
     UserInputService.InputChanged:Connect(function(input)
+
         if not dragging then
             return
         end
@@ -269,6 +381,7 @@ do
     end)
 
     UserInputService.InputEnded:Connect(function(input)
+
         if input == activeInput
             or input.UserInputType == Enum.UserInputType.MouseButton1 then
 
@@ -278,4 +391,4 @@ do
     end)
 end
 
-print("kinghyunwoo LEVEL UP GUI V3 loaded")
+print("kinghyunwoo LEVEL UP V4 loaded")
