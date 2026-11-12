@@ -1,43 +1,40 @@
 
 --========================================
 -- kinghyunwoo LEVEL UP
--- 독립 자동레벨업 GUI
+-- 퀘스트 추적 UI 인식 개선판
 --========================================
 
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
-
 local Player = Players.LocalPlayer
 if not Player then return end
 
--- 이전 GUI 정리
 pcall(function()
-    CoreGui:FindFirstChild("kinghyunwoo_LevelUp"):Destroy()
+    local old = CoreGui:FindFirstChild("kinghyunwoo_LevelUp")
+    if old then old:Destroy() end
 end)
-
 pcall(function()
-    Player.PlayerGui:FindFirstChild("kinghyunwoo_LevelUp"):Destroy()
+    local old = Player:WaitForChild("PlayerGui"):FindFirstChild("kinghyunwoo_LevelUp")
+    if old then old:Destroy() end
 end)
 
 local Enabled = false
 local Running = true
 
--- GUI 생성부터 실행
+-- GUI 생성
 local GUI = Instance.new("ScreenGui")
 GUI.Name = "kinghyunwoo_LevelUp"
 GUI.ResetOnSpawn = false
 GUI.DisplayOrder = 999
 
-local parentSuccess = pcall(function()
+local ok = pcall(function()
     GUI.Parent = CoreGui
 end)
-
-if not parentSuccess then
+if not ok then
     GUI.Parent = Player:WaitForChild("PlayerGui")
 end
 
 local Frame = Instance.new("Frame")
-Frame.Name = "Main"
 Frame.Size = UDim2.fromOffset(270, 205)
 Frame.Position = UDim2.new(0.5, -135, 0.4, 0)
 Frame.BackgroundColor3 = Color3.fromRGB(25, 20, 35)
@@ -51,7 +48,7 @@ Corner.CornerRadius = UDim.new(0, 12)
 Corner.Parent = Frame
 
 local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, -45, 0, 38)
+Title.Size = UDim2.new(1, -105, 0, 38)
 Title.Position = UDim2.fromOffset(10, 0)
 Title.BackgroundTransparency = 1
 Title.Text = "kinghyunwoo"
@@ -90,10 +87,6 @@ Status.Font = Enum.Font.Gotham
 Status.TextWrapped = true
 Status.Parent = Frame
 
-local StatusCorner = Instance.new("UICorner")
-StatusCorner.CornerRadius = UDim.new(0, 7)
-StatusCorner.Parent = Status
-
 local Toggle = Instance.new("TextButton")
 Toggle.Position = UDim2.fromOffset(12, 108)
 Toggle.Size = UDim2.new(1, -24, 0, 38)
@@ -104,27 +97,22 @@ Toggle.Font = Enum.Font.GothamBold
 Toggle.TextSize = 14
 Toggle.Parent = Frame
 
-local ToggleCorner = Instance.new("UICorner")
-ToggleCorner.CornerRadius = UDim.new(0, 7)
-ToggleCorner.Parent = Toggle
-
 local Info = Instance.new("TextLabel")
 Info.Position = UDim2.fromOffset(12, 153)
 Info.Size = UDim2.new(1, -24, 0, 38)
 Info.BackgroundTransparency = 1
-Info.Text = "지원 예정: 1해 / 2해 / 3해"
+Info.Text = "퀘스트 추적창 인식 / 1해·2해·3해"
 Info.TextColor3 = Color3.fromRGB(190, 170, 210)
 Info.TextSize = 11
 Info.Parent = Frame
 
--- ON/OFF
 Toggle.MouseButton1Click:Connect(function()
     Enabled = not Enabled
 
     if Enabled then
         Toggle.Text = "자동레벨업 : ON"
         Toggle.BackgroundColor3 = Color3.fromRGB(30, 150, 85)
-        Status.Text = "퀘스트 정보 확인 중..."
+        Status.Text = "왼쪽 퀘스트 창 확인 중..."
     else
         Toggle.Text = "자동레벨업 : OFF"
         Toggle.BackgroundColor3 = Color3.fromRGB(170, 45, 65)
@@ -132,9 +120,7 @@ Toggle.MouseButton1Click:Connect(function()
     end
 end)
 
--- 최소화
 local minimized = false
-
 Minimize.MouseButton1Click:Connect(function()
     minimized = not minimized
     Status.Visible = not minimized
@@ -145,52 +131,121 @@ Minimize.MouseButton1Click:Connect(function()
         or UDim2.fromOffset(270, 205)
 end)
 
--- 종료
 Close.MouseButton1Click:Connect(function()
     Running = false
     Enabled = false
     GUI:Destroy()
 end)
 
--- 현재 퀘스트 UI 읽기
+-- 표시 중인 텍스트인지 확인
+local function IsVisible(obj)
+    if not obj:IsA("TextLabel") and not obj:IsA("TextButton") then
+        return false
+    end
+
+    if not obj.Visible then return false end
+
+    local node = obj.Parent
+    local pg = Player:FindFirstChild("PlayerGui")
+
+    while node and node ~= pg do
+        if node:IsA("GuiObject") and not node.Visible then
+            return false
+        end
+        node = node.Parent
+    end
+
+    return true
+end
+
+-- 퀘스트 진행도 읽기
+local function GetProgress(txt)
+    local a, b = txt:match("%((%d+)%s*/%s*(%d+)%)")
+
+    if not a then
+        a, b = txt:match("(%d+)%s*/%s*(%d+)")
+    end
+
+    if a and b then
+        local current = tonumber(a)
+        local required = tonumber(b)
+
+        if required and required > 0 and current <= required then
+            return current, required
+        end
+    end
+end
+
+-- 몬스터 이름 읽기
+local function GetTarget(txt)
+    local name = txt:match("^%s*(.-)%s*%[Lv%.?%s*%d+%]")
+
+    if name then
+        name = name:gsub("^%s+", ""):gsub("%s+$", "")
+        if #name > 1 then
+            return name
+        end
+    end
+end
+
+-- 진행도가 있는 퀘스트 패널 안에서만 목표 검색
 local function ReadQuest()
     local pg = Player:FindFirstChild("PlayerGui")
     if not pg then return nil end
 
-    local target, current, required
+    local best = nil
 
-    for _, obj in ipairs(pg:GetDescendants()) do
-        if obj:IsA("TextLabel") and obj.Visible then
-            local txt = obj.Text or ""
+    for _, progressObj in ipairs(pg:GetDescendants()) do
+        if IsVisible(progressObj) then
+            local current, required =
+                GetProgress(progressObj.Text or "")
 
-            local name = txt:match(
-                "^%s*(.-)%s*%[Lv%.%s*%d+%]"
-            )
+            if current then
+                local ancestor = progressObj.Parent
+                local depth = 0
 
-            if name then
-                target = name
-            end
+                while ancestor and ancestor ~= pg and depth <= 8 do
+                    local target = nil
 
-            local a, b = txt:match(
-                "%((%d+)%s*/%s*(%d+)%)"
-            )
+                    for _, textObj in ipairs(ancestor:GetDescendants()) do
+                        if textObj ~= progressObj and IsVisible(textObj) then
+                            target = GetTarget(textObj.Text or "")
+                            if target then break end
+                        end
+                    end
 
-            if a then
-                current = tonumber(a)
-                required = tonumber(b)
+                    if target then
+                        local candidate = {
+                            target = target,
+                            current = current,
+                            required = required,
+                            depth = depth
+                        }
+
+                        if not best or candidate.depth < best.depth then
+                            best = candidate
+                        end
+                        break
+                    end
+
+                    ancestor = ancestor.Parent
+                    depth = depth + 1
+                end
             end
         end
     end
 
-    if target and current and required then
-        return target, current, required
+    if best then
+        return best.target, best.current, best.required
     end
+
+    return nil
 end
 
--- 상태 확인 루프
+-- 상태 표시
 task.spawn(function()
     while Running and GUI.Parent do
-        task.wait(1)
+        task.wait(0.7)
 
         if Enabled then
             local target, current, required = ReadQuest()
@@ -199,7 +254,7 @@ task.spawn(function()
                 Status.Text = "퀘스트: " .. target ..
                     "\n진행도: " .. current .. "/" .. required
             else
-                Status.Text = "활성 퀘스트를 찾지 못했습니다."
+                Status.Text = "왼쪽 퀘스트 추적창을 찾지 못했습니다."
             end
         end
     end
