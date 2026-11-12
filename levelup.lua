@@ -1,7 +1,8 @@
 
 --==================================================
 -- kinghyunwoo LEVEL UP
--- GUI ONLY V1
+-- GUI ONLY V2
+-- FIXED MINIMIZE / EXPAND
 --==================================================
 
 local Players = game:GetService("Players")
@@ -12,9 +13,16 @@ local Player = Players.LocalPlayer
 
 -- 기존 GUI 제거
 pcall(function()
-    CoreGui:FindFirstChild("kinghyunwoo_LEVELUP"):Destroy()
+    local old = CoreGui:FindFirstChild("kinghyunwoo_LEVELUP")
+    if old then old:Destroy() end
 end)
 
+pcall(function()
+    local old = Player:WaitForChild("PlayerGui"):FindFirstChild("kinghyunwoo_LEVELUP")
+    if old then old:Destroy() end
+end)
+
+-- GUI 생성
 local Gui = Instance.new("ScreenGui")
 Gui.Name = "kinghyunwoo_LEVELUP"
 Gui.ResetOnSpawn = false
@@ -29,6 +37,7 @@ end
 
 -- 메인 창
 local Main = Instance.new("Frame")
+Main.Name = "Main"
 Main.Size = UDim2.new(0, 300, 0, 300)
 Main.Position = UDim2.new(0.5, -150, 0.5, -150)
 Main.BackgroundColor3 = Color3.fromRGB(25, 28, 38)
@@ -42,8 +51,9 @@ Stroke.Color = Color3.fromRGB(70, 190, 150)
 Stroke.Thickness = 1.5
 Stroke.Parent = Main
 
--- 상단 제목
+-- 상단 표시줄
 local Header = Instance.new("Frame")
+Header.Name = "Header"
 Header.Size = UDim2.new(1, 0, 0, 42)
 Header.BackgroundColor3 = Color3.fromRGB(35, 42, 55)
 Header.BorderSizePixel = 0
@@ -51,6 +61,7 @@ Header.Parent = Main
 
 Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 12)
 
+-- 제목
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, -90, 1, 0)
 Title.Position = UDim2.new(0, 12, 0, 0)
@@ -62,21 +73,31 @@ Title.Font = Enum.Font.GothamBold
 Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.Parent = Header
 
--- 최소화
+-- 최소화 버튼
 local Minimize = Instance.new("TextButton")
 Minimize.Size = UDim2.new(0, 30, 0, 28)
 Minimize.Position = UDim2.new(1, -68, 0, 7)
+Minimize.BackgroundColor3 = Color3.fromRGB(65, 80, 95)
 Minimize.Text = "-"
+Minimize.TextColor3 = Color3.new(1, 1, 1)
 Minimize.TextSize = 20
+Minimize.Font = Enum.Font.GothamBold
 Minimize.Parent = Header
 
--- 닫기
+Instance.new("UICorner", Minimize).CornerRadius = UDim.new(0, 6)
+
+-- 닫기 버튼
 local Close = Instance.new("TextButton")
 Close.Size = UDim2.new(0, 30, 0, 28)
 Close.Position = UDim2.new(1, -34, 0, 7)
+Close.BackgroundColor3 = Color3.fromRGB(170, 65, 65)
 Close.Text = "X"
+Close.TextColor3 = Color3.new(1, 1, 1)
 Close.TextSize = 16
+Close.Font = Enum.Font.GothamBold
 Close.Parent = Header
+
+Instance.new("UICorner", Close).CornerRadius = UDim.new(0, 6)
 
 -- 레벨 표시
 local Level = Instance.new("TextLabel")
@@ -102,7 +123,7 @@ Status.TextSize = 14
 Status.Font = Enum.Font.Gotham
 Status.Parent = Main
 
--- 정보 생성 함수
+-- 정보 라벨
 local function MakeInfo(text, y)
     local label = Instance.new("TextLabel")
     label.Size = UDim2.new(1, -24, 0, 25)
@@ -152,34 +173,55 @@ Toggle.MouseButton1Click:Connect(function()
         or "상태: OFF"
 end)
 
--- 최소화 / 확대
+--==================================================
+-- MINIMIZE / EXPAND
+--==================================================
+
 local minimized = false
+
+local ContentObjects = {
+    Level,
+    Status,
+    Quest,
+    Monster,
+    Attack,
+    Toggle
+}
 
 Minimize.MouseButton1Click:Connect(function()
     minimized = not minimized
 
-    for _, obj in ipairs(Main:GetChildren()) do
-        if obj ~= Header and obj.Parent == Main then
-            obj.Visible = not minimized
-        end
+    for _, object in ipairs(ContentObjects) do
+        object.Visible = not minimized
     end
 
-    Main.Size = minimized
-        and UDim2.new(0, 300, 0, 42)
-        or UDim2.new(0, 300, 0, 300)
+    if minimized then
+        Main.Size = UDim2.new(0, 300, 0, 42)
+        Minimize.Text = "+"
+    else
+        Main.Size = UDim2.new(0, 300, 0, 300)
+        Minimize.Text = "-"
+    end
 end)
 
--- 닫기
+--==================================================
+-- CLOSE
+--==================================================
+
 Close.MouseButton1Click:Connect(function()
     Enabled = false
     Gui:Destroy()
 end)
 
--- 모바일 터치 / 마우스 드래그
+--==================================================
+-- MOBILE / PC DRAG
+--==================================================
+
 do
     local dragging = false
     local dragStart
     local startPos
+    local activeInput
 
     Header.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1
@@ -188,12 +230,7 @@ do
             dragging = true
             dragStart = input.Position
             startPos = Main.Position
-
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                end
-            end)
+            activeInput = input
         end
     end)
 
@@ -213,6 +250,14 @@ do
             )
         end
     end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input == activeInput
+            or input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+            activeInput = nil
+        end
+    end)
 end
 
-print("kinghyunwoo LEVEL UP GUI loaded")
+print("kinghyunwoo LEVEL UP GUI V2 loaded")
