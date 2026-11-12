@@ -1,7 +1,7 @@
 
 --==================================================
 -- kinghyunwoo LEVEL UP
--- GUI + LEVEL DETECTION + QUEST + ATTACK
+-- GUI + LEVEL DETECTION + AUTO QUEST + ATTACK
 --==================================================
 
 local Players = game:GetService("Players")
@@ -13,8 +13,7 @@ local Player = Players.LocalPlayer
 local Settings = {
     Enabled = false,
     AttackEnabled = true,
-    SkillEnabled = true,
-    AttackDistance = 18,
+    SkillEnabled = false,
     QuestDistance = 12,
     MonsterDistance = 18,
     AttackInterval = 0.4,
@@ -116,6 +115,7 @@ Toggle.MouseButton1Click:Connect(function()
     Toggle.Text = Settings.Enabled
         and "자동 레벨업 : ON"
         or "자동 레벨업 : OFF"
+
     StatusLabel.Text = Settings.Enabled
         and "상태: 작동 중"
         or "상태: OFF"
@@ -154,9 +154,18 @@ local function GetRoot()
     return character and character:FindFirstChild("HumanoidRootPart")
 end
 
+local function MoveTo(position)
+    local root = GetRoot()
+    if not root then return end
+
+    pcall(function()
+        root.CFrame = CFrame.new(position + Vector3.new(0, 3, 0))
+    end)
+end
+
 --==================================================
 -- LEVEL DETECTION
--- 200이 들어 있는 leaderstats는 사용하지 않음
+-- 기존 HUD 인식 방식 유지
 --==================================================
 
 local function FindLevel()
@@ -173,18 +182,11 @@ local function FindLevel()
     local function Scan(container)
         if not container then return end
 
-        local descendants = {}
-
-        pcall(function()
-            descendants = container:GetDescendants()
-        end)
-
-        for _, obj in ipairs(descendants) do
+        for _, obj in ipairs(container:GetDescendants()) do
             if obj:IsA("TextLabel") or obj:IsA("TextButton") then
-                local text = tostring(obj.Text or "")
-                local numberText = text:gsub(",", "")
                 local number = tonumber(
-                    numberText:match("^%s*(%d+)%s*$")
+                    tostring(obj.Text or ""):gsub(",", "")
+                    :match("^%s*(%d+)%s*$")
                 )
 
                 if number and number >= 1 and number <= 1000000 then
@@ -225,22 +227,16 @@ local function FindLevel()
         return a.Score > b.Score
     end)
 
-    if candidates[1] then
-        return candidates[1].Level
-    end
-
-    -- 중요: 잘못된 200을 가져오는 대체 인식 없음
-    return nil
+    return candidates[1] and candidates[1].Level or nil
 end
 
 --==================================================
--- QUEST UI
+-- VISIBLE GAME UI
 --==================================================
 
 local function GetVisibleTextObjects()
     local result = {}
     local playerGui = Player:FindFirstChildOfClass("PlayerGui")
-
     if not playerGui then return result end
 
     for _, obj in ipairs(playerGui:GetDescendants()) do
@@ -253,64 +249,224 @@ local function GetVisibleTextObjects()
     return result
 end
 
-local function ReadRequiredLevel(text)
-    text = tostring(text):lower()
+local function GetVisibleButtons()
+    local result = {}
 
-    local patterns = {
-        "required%s*level%s*:?%s*(%d+)",
-        "level%s*:?%s*(%d+)",
-        "lv%.?%s*(%d+)",
-        "(%d+)%s*level"
-    }
+    for _, obj in ipairs(GetVisibleTextObjects()) do
+        if obj:IsA("TextButton") and obj.Active then
+            table.insert(result, obj)
+        end
+    end
 
-    for _, pattern in ipairs(patterns) do
-        local value = text:match(pattern)
-        if value then
-            return tonumber(value)
+    return result
+end
+
+local function GetDialogText()
+    local texts = {}
+
+    for _, obj in ipairs(GetVisibleTextObjects()) do
+        table.insert(texts, tostring(obj.Text):gsub("%s+", " "))
+    end
+
+    return table.concat(texts, " ")
+end
+
+local function FindDialogButton(keyword)
+    keyword = keyword:lower()
+
+    for _, button in ipairs(GetVisibleButtons()) do
+        if button.Text:lower():find(keyword, 1, true) then
+            return button
         end
     end
 
     return nil
 end
 
-local function FindBestQuestButton()
-    if not CurrentLevel then return nil end
+local function IsQuestDialogOpen()
+    local text = GetDialogText():lower()
 
-    local bestButton = nil
-    local bestLevel = -1
+    return text:find("select a quest", 1, true) ~= nil
+        or text:find("level required", 1, true) ~= nil
+end
 
-    for _, obj in ipairs(GetVisibleTextObjects()) do
-        if obj:IsA("TextButton") then
-            local required = ReadRequiredLevel(obj.Text)
+--==================================================
+-- READ QUEST DETAILS
+--==================================================
 
-            if required and required <= CurrentLevel
-                and required > bestLevel then
-                bestLevel = required
-                bestButton = obj
-            end
+local function ReadQuestDetails()
+    local text = GetDialogText()
+
+    local requiredText =
+        text:match("[Ll]evel%s+[Rr]equired%s*:?%s*([%d,]+)")
+        or text:match("[Rr]equired%s+[Ll]evel%s*:?%s*([%d,]+)")
+
+    if not requiredText then return nil end
+
+    local required = tonumber(requiredText:gsub(",", ""))
+    if not required then return nil end
+
+    local objective = text:match(
+        "[Oo]bjective%s*:?%s*(.-)%s*%$[%d,]+"
+    )
+
+    local count, target
+
+    if objective then
+        count, target = objective:match(
+            "[Kk]ill%s+(%d+)%s+(.+)"
+        )
+    end
+
+    if not count then
+        count, target = text:match(
+            "[Kk]ill%s+(%d+)%s+([%w%s]+)"
+        )
+    end
+
+    if target then
+        target = target:gsub("%s+$", "")
+    end
+
+    return {
+        RequiredLevel = required,
+        Target = target,
+        Count = tonumber(count)
+    }
+end
+
+--==================================================
+-- FIND QUEST OPTIONS
+--==================================================
+
+local function FindQuestOptionButtons()
+    local result = {}
+
+    for _, button in ipairs(GetVisibleButtons()) do
+        local name = button.Text:lower()
+
+        if #name >= 3
+            and not name:find("confirm", 1, true)
+            and not name:find("return", 1, true)
+            and not name:find("abandon", 1, true)
+            and not name:find("close", 1, true)
+            and not name:find("kinghyunwoo", 1, true) then
+
+            table.insert(result, button)
         end
     end
 
-    return bestButton, bestLevel
+    return result
 end
 
+--==================================================
+-- AUTOMATIC QUEST SELECTION
+-- 현재 레벨 이하 중 가장 높은 요구 레벨 선택
+--==================================================
+
 local function TryQuest()
+    if not CurrentLevel then return false end
     if os.clock() - LastQuestAction < Settings.QuestInterval then
-        return
+        return false
     end
+
+    if not IsQuestDialogOpen() then return false end
 
     LastQuestAction = os.clock()
 
-    local button, required = FindBestQuestButton()
+    local dialogText = GetDialogText():lower()
 
-    if button then
-        QuestLabel.Text = "퀘스트: 선택 중 (" .. required .. ")"
-        pcall(function()
-            button:Activate()
-        end)
-    else
-        QuestLabel.Text = "퀘스트: NPC 탐색 중"
+    if dialogText:find("select a quest", 1, true) then
+        local options = FindQuestOptionButtons()
+
+        local bestButton = nil
+        local bestLevel = -1
+        local bestTarget = nil
+
+        for _, option in ipairs(options) do
+            pcall(function()
+                option:Activate()
+            end)
+
+            task.wait(0.4)
+
+            local details = ReadQuestDetails()
+
+            if details
+                and details.RequiredLevel <= CurrentLevel
+                and details.RequiredLevel > bestLevel then
+
+                bestButton = option
+                bestLevel = details.RequiredLevel
+                bestTarget = details.Target
+            end
+
+            local returnButton = FindDialogButton("return")
+
+            if returnButton then
+                pcall(function()
+                    returnButton:Activate()
+                end)
+                task.wait(0.3)
+            end
+        end
+
+        if bestButton then
+            pcall(function()
+                bestButton:Activate()
+            end)
+
+            task.wait(0.4)
+
+            local confirm = FindDialogButton("confirm")
+
+            if confirm then
+                pcall(function()
+                    confirm:Activate()
+                end)
+
+                QuestLabel.Text = "퀘스트: 수락 (" .. bestLevel .. ")"
+
+                if bestTarget then
+                    MonsterLabel.Text = "목표: " .. bestTarget
+                end
+            else
+                QuestLabel.Text = "퀘스트: Confirm 탐색 실패"
+            end
+        else
+            QuestLabel.Text = "퀘스트: 레벨에 맞는 항목 없음"
+        end
+
+        return true
     end
+
+    if dialogText:find("level required", 1, true) then
+        local details = ReadQuestDetails()
+
+        if details and details.RequiredLevel <= CurrentLevel then
+            local confirm = FindDialogButton("confirm")
+
+            if confirm then
+                pcall(function()
+                    confirm:Activate()
+                end)
+
+                QuestLabel.Text =
+                    "퀘스트: 수락 (" .. details.RequiredLevel .. ")"
+            end
+        else
+            local back = FindDialogButton("return")
+            if back then
+                pcall(function()
+                    back:Activate()
+                end)
+            end
+        end
+
+        return true
+    end
+
+    return false
 end
 
 --==================================================
@@ -321,32 +477,36 @@ local function FindQuestNPC()
     local root = GetRoot()
     if not root then return nil end
 
-    local best, bestDistance = nil, math.huge
+    local best = nil
+    local bestDistance = math.huge
+    local seen = {}
 
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("ProximityPrompt") then
-            local model = obj.Parent
-                and obj.Parent:FindFirstAncestorOfClass("Model")
+            local model = obj:FindFirstAncestorOfClass("Model")
 
-            if model then
-                local name = (
-                    model.Name .. " " ..
-                    tostring(obj.ObjectText) .. " " ..
-                    tostring(obj.ActionText)
-                ):lower()
+            if model and model ~= GetCharacter()
+                and not seen[model] then
 
-                if name:find("quest") or name:find("퀘스트") then
-                    local part = model:FindFirstChild("HumanoidRootPart")
-                        or model:FindFirstChildWhichIsA("BasePart")
+                seen[model] = true
 
-                    if part then
-                        local distance =
-                            (root.Position - part.Position).Magnitude
+                local humanoid =
+                    model:FindFirstChildOfClass("Humanoid")
 
-                        if distance < bestDistance then
-                            bestDistance = distance
-                            best = {Part = part, Prompt = obj}
-                        end
+                local part =
+                    model:FindFirstChild("HumanoidRootPart")
+                    or model:FindFirstChildWhichIsA("BasePart")
+
+                if humanoid and part then
+                    local distance =
+                        (root.Position - part.Position).Magnitude
+
+                    if distance < bestDistance then
+                        bestDistance = distance
+                        best = {
+                            Part = part,
+                            Prompt = obj
+                        }
                     end
                 end
             end
@@ -356,16 +516,9 @@ local function FindQuestNPC()
     return best
 end
 
-local function MoveTo(position)
-    local root = GetRoot()
-    if not root then return end
-
-    pcall(function()
-        root.CFrame = CFrame.new(position + Vector3.new(0, 3, 0))
-    end)
-end
-
 local function InteractQuestNPC()
+    if IsQuestDialogOpen() then return end
+
     local npc = FindQuestNPC()
 
     if not npc then
@@ -376,15 +529,20 @@ local function InteractQuestNPC()
     local root = GetRoot()
     if not root then return end
 
-    local distance = (root.Position - npc.Part.Position).Magnitude
+    local distance =
+        (root.Position - npc.Part.Position).Magnitude
 
     if distance > Settings.QuestDistance then
         MoveTo(npc.Part.Position)
-        QuestLabel.Text = "퀘스트: NPC 이동 중"
+        QuestLabel.Text = "퀘스트: NPC 접근 중"
     else
         pcall(function()
             if typeof(fireproximityprompt) == "function" then
                 fireproximityprompt(npc.Prompt)
+            else
+                npc.Prompt:InputHoldBegin()
+                task.wait(math.max(npc.Prompt.HoldDuration, 0.1))
+                npc.Prompt:InputHoldEnd()
             end
         end)
 
@@ -393,26 +551,21 @@ local function InteractQuestNPC()
 end
 
 --==================================================
--- QUEST TARGET
+-- ACTIVE QUEST TARGET
 --==================================================
 
 local function ReadQuestTarget()
     for _, obj in ipairs(GetVisibleTextObjects()) do
-        local text = obj.Text
-        local lower = text:lower()
+        local text = tostring(obj.Text):gsub("%s+", " ")
 
-        if lower:find("defeat") or lower:find("kill")
-            or text:find("처치") then
+        local target = text:match(
+            "^%s*(.-)%s*%(%s*[Ll][Vv]%.?%s*[%d,]+%s*%)"
+        )
 
-            local target = text
-            target = target:gsub("%d+/%d+", "")
-            target = target:gsub("[Dd]efeat", "")
-            target = target:gsub("[Kk]ill", "")
-            target = target:gsub("처치", "")
-            target = target:gsub("^%s+", "")
-            target = target:gsub("%s+$", "")
+        if target and #target > 2 then
+            target = target:gsub("^%s+", ""):gsub("%s+$", "")
 
-            if #target > 2 then
+            if not target:lower():find("quest", 1, true) then
                 return target
             end
         end
@@ -429,32 +582,33 @@ local function FindMonster()
     local root = GetRoot()
     if not root then return nil end
 
-    local questTarget = ReadQuestTarget()
-    local best, bestDistance = nil, math.huge
+    local targetName = ReadQuestTarget()
+    if not targetName then return nil end
 
-    for _, obj in ipairs(workspace:GetChildren()) do
+    local best = nil
+    local bestDistance = math.huge
+
+    for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("Model") and obj ~= GetCharacter() then
-            local humanoid = obj:FindFirstChildOfClass("Humanoid")
-            local monsterRoot = obj:FindFirstChild("HumanoidRootPart")
+            local humanoid =
+                obj:FindFirstChildOfClass("Humanoid")
+
+            local monsterRoot =
+                obj:FindFirstChild("HumanoidRootPart")
                 or obj:FindFirstChildWhichIsA("BasePart")
 
-            if humanoid and monsterRoot and humanoid.Health > 0 then
-                local matches = true
+            if humanoid and monsterRoot
+                and humanoid.Health > 0
+                and obj.Name:lower():find(
+                    targetName:lower(), 1, true
+                ) then
 
-                if questTarget then
-                    matches = obj.Name:lower():find(
-                        questTarget:lower(), 1, true
-                    ) ~= nil
-                end
+                local distance =
+                    (root.Position - monsterRoot.Position).Magnitude
 
-                if matches then
-                    local distance =
-                        (root.Position - monsterRoot.Position).Magnitude
-
-                    if distance < bestDistance then
-                        bestDistance = distance
-                        best = obj
-                    end
+                if distance < bestDistance then
+                    bestDistance = distance
+                    best = obj
                 end
             end
         end
@@ -482,7 +636,9 @@ end
 
 local function BasicAttack()
     if not Settings.AttackEnabled then return end
-    if os.clock() - LastAttack < Settings.AttackInterval then return end
+    if os.clock() - LastAttack < Settings.AttackInterval then
+        return
+    end
 
     LastAttack = os.clock()
 
@@ -501,29 +657,27 @@ end
 
 --==================================================
 -- SKILLS
+-- 쿨타임 UI 판별은 아직 연결되지 않아 기본 OFF
 --==================================================
 
 local function PressKey(key)
     pcall(function()
-        VirtualInput:SendKeyEvent(true, Enum.KeyCode[key], false, game)
-        task.wait(0.05)
-        VirtualInput:SendKeyEvent(false, Enum.KeyCode[key], false, game)
-    end)
-end
+        VirtualInput:SendKeyEvent(
+            true, Enum.KeyCode[key], false, game
+        )
 
-local function IsSkillReady(key)
-    -- 실제 쿨타임 UI 확인 전에는 스킬 난사 방지
-    return false
+        task.wait(0.05)
+
+        VirtualInput:SendKeyEvent(
+            false, Enum.KeyCode[key], false, game
+        )
+    end)
 end
 
 local function UseSkills()
     if not Settings.SkillEnabled then return end
 
-    for _, key in ipairs(SkillKeys) do
-        if IsSkillReady(key) then
-            PressKey(key)
-        end
-    end
+    -- 스킬별 쿨타임 표시 판별을 확인한 뒤 연결할 것
 end
 
 --==================================================
@@ -539,35 +693,47 @@ task.spawn(function()
                 LevelLabel.Text = "현재 레벨: " .. CurrentLevel
                 StatusLabel.Text = "상태: 레벨 인식 성공"
 
-                local target = FindMonster()
+                local activeTarget = ReadQuestTarget()
 
-                if target then
-                    local humanoid = target:FindFirstChildOfClass("Humanoid")
-                    local monsterRoot = target:FindFirstChild("HumanoidRootPart")
-                        or target:FindFirstChildWhichIsA("BasePart")
+                if activeTarget then
+                    local target = FindMonster()
 
-                    MonsterLabel.Text = "몬스터: " .. target.Name
+                    if target then
+                        local humanoid =
+                            target:FindFirstChildOfClass("Humanoid")
 
-                    if humanoid and monsterRoot then
-                        local root = GetRoot()
+                        local monsterRoot =
+                            target:FindFirstChild("HumanoidRootPart")
+                            or target:FindFirstChildWhichIsA("BasePart")
 
-                        if root then
-                            local distance =
-                                (root.Position - monsterRoot.Position).Magnitude
+                        MonsterLabel.Text = "몬스터: " .. target.Name
 
-                            if distance > Settings.MonsterDistance then
-                                MoveTo(monsterRoot.Position)
-                                AttackLabel.Text = "공격: 접근 중"
-                            else
-                                BasicAttack()
-                                UseSkills()
+                        if humanoid and monsterRoot then
+                            local root = GetRoot()
+
+                            if root then
+                                local distance =
+                                    (root.Position - monsterRoot.Position).Magnitude
+
+                                if distance > Settings.MonsterDistance then
+                                    MoveTo(monsterRoot.Position)
+                                    AttackLabel.Text = "공격: 접근 중"
+                                else
+                                    BasicAttack()
+                                    UseSkills()
+                                end
                             end
                         end
+                    else
+                        MonsterLabel.Text =
+                            "몬스터 탐색 중: " .. activeTarget
                     end
                 else
-                    MonsterLabel.Text = "몬스터: 탐색 중"
-                    TryQuest()
-                    InteractQuestNPC()
+                    MonsterLabel.Text = "몬스터: 대기 중"
+
+                    if not TryQuest() then
+                        InteractQuestNPC()
+                    end
                 end
             else
                 LevelLabel.Text = "레벨: HUD 인식 실패"
