@@ -1,8 +1,6 @@
-
 --========================================
 -- kinghyunwoo LEVEL UP
--- 자동 퀘스트 + 자동 사냥 통합본
--- 레벨 인식 개선판
+-- 자동 퀘스트 + 자동 사냥 통합본 (레벨 감지 수정판)
 --========================================
 
 local Players = game:GetService("Players")
@@ -22,6 +20,7 @@ local LastAttack = 0
 local LastMove = 0
 local LastNPCInteract = 0
 
+-- 기존 GUI 제거
 pcall(function()
     local old = CoreGui:FindFirstChild("kinghyunwoo_LevelUp")
     if old then old:Destroy() end
@@ -31,6 +30,16 @@ pcall(function()
     local old = PlayerGui:FindFirstChild("kinghyunwoo_LevelUp")
     if old then old:Destroy() end
 end)
+
+--========================================
+-- 공통 유틸
+--========================================
+
+-- gsub는 값을 2개 반환하므로 괄호로 감싸서 사용
+local function ToNum(s)
+    if s == nil then return nil end
+    return tonumber((tostring(s):gsub(",", "")))
+end
 
 --========================================
 -- GUI
@@ -50,7 +59,7 @@ if not ok then
 end
 
 local Frame = Instance.new("Frame")
-Frame.Size = UDim2.fromOffset(280, 220)
+Frame.Size = UDim2.fromOffset(280, 262)
 Frame.Position = UDim2.new(0.5, -140, 0.4, 0)
 Frame.BackgroundColor3 = Color3.fromRGB(25, 20, 35)
 Frame.BorderSizePixel = 0
@@ -108,23 +117,67 @@ Toggle.Font = Enum.Font.GothamBold
 Toggle.Parent = Frame
 
 local Info = Instance.new("TextLabel")
-Info.Position = UDim2.fromOffset(12, 170)
+Info.Position = UDim2.fromOffset(12, 214)
 Info.Size = UDim2.new(1, -24, 0, 38)
 Info.BackgroundTransparency = 1
-Info.Text = "자동 퀘스트 · 평타 · 스킬"
+Info.Text = "자동 퀘스트 · 열매/칼/주먹 순환 · 스킬"
 Info.TextColor3 = Color3.fromRGB(190, 170, 210)
 Info.TextSize = 11
 Info.Parent = Frame
 
+-- 무기 슬롯 설정 (하단 핫바 1=열매, 2=칼, 3=주먹)
+local SlotConfig = {
+    { key = "One",   name = "열매", on = true },
+    { key = "Two",   name = "칼",   on = true },
+    { key = "Three", name = "주먹", on = true },
+}
+
+local SlotButtons = {}
+
+local function RefreshSlotButton(i)
+    local slot = SlotConfig[i]
+    local btn = SlotButtons[i]
+
+    btn.Text = slot.name .. (slot.on and " ON" or " OFF")
+    btn.BackgroundColor3 = slot.on
+        and Color3.fromRGB(30, 150, 85)
+        or Color3.fromRGB(90, 70, 110)
+end
+
+for i = 1, #SlotConfig do
+    local btn = Instance.new("TextButton")
+    btn.Position = UDim2.fromOffset(12 + (i - 1) * 86, 172)
+    btn.Size = UDim2.fromOffset(82, 32)
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 13
+    btn.Parent = Frame
+
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+
+    SlotButtons[i] = btn
+    RefreshSlotButton(i)
+
+    btn.MouseButton1Click:Connect(function()
+        SlotConfig[i].on = not SlotConfig[i].on
+        RefreshSlotButton(i)
+    end)
+end
+
 Toggle.MouseButton1Click:Connect(function()
     Enabled = not Enabled
 
-    Toggle.Text = Enabled and "자동레벨업 : ON" or "자동레벨업 : OFF"
+    Toggle.Text = Enabled
+        and "자동레벨업 : ON"
+        or "자동레벨업 : OFF"
+
     Toggle.BackgroundColor3 = Enabled
         and Color3.fromRGB(30, 150, 85)
         or Color3.fromRGB(170, 45, 65)
 
-    Status.Text = Enabled and "레벨 및 퀘스트 확인 중..." or "자동레벨업 중지"
+    Status.Text = Enabled
+        and "레벨 및 퀘스트 확인 중..."
+        or "자동레벨업 중지"
 end)
 
 local minimized = false
@@ -136,9 +189,13 @@ Minimize.MouseButton1Click:Connect(function()
     Toggle.Visible = not minimized
     Info.Visible = not minimized
 
+    for _, btn in ipairs(SlotButtons) do
+        btn.Visible = not minimized
+    end
+
     Frame.Size = minimized
         and UDim2.fromOffset(280, 40)
-        or UDim2.fromOffset(280, 220)
+        or UDim2.fromOffset(280, 262)
 end)
 
 Close.MouseButton1Click:Connect(function()
@@ -156,7 +213,9 @@ local function IsVisible(obj)
         return false
     end
 
-    if not obj.Visible then return false end
+    if not obj.Visible then
+        return false
+    end
 
     local node = obj.Parent
 
@@ -164,6 +223,7 @@ local function IsVisible(obj)
         if node:IsA("GuiObject") and not node.Visible then
             return false
         end
+
         node = node.Parent
     end
 
@@ -179,11 +239,14 @@ local function ClickButton(button)
         button:Activate()
     end)
 
-    if success then return true end
+    if success then
+        return true
+    end
 
     return pcall(function()
         local pos = button.AbsolutePosition
         local size = button.AbsoluteSize
+
         local x = pos.X + size.X / 2
         local y = pos.Y + size.Y / 2
 
@@ -206,146 +269,119 @@ local function FindButton(text, root)
 end
 
 --========================================
--- 플레이어 레벨 읽기 개선
+-- 플레이어 레벨 읽기 (수정됨)
+-- 체력바 위 중앙의 "숫자만 있는 라벨"을 찾아 캐시하고,
+-- 이후에는 그 라벨의 현재 텍스트를 매번 읽는다.
 --========================================
 
+local LevelLabel = nil
+
+local function IsLevelLabelValid(label)
+    if not label or not label.Parent then
+        return false
+    end
+
+    if not label:IsDescendantOf(PlayerGui) then
+        return false
+    end
+
+    return ToNum(label.Text) ~= nil
+end
+
+local function FindLevelLabel()
+    local cam = workspace.CurrentCamera
+    if not cam then return nil end
+
+    local vp = cam.ViewportSize
+    if vp.X <= 0 or vp.Y <= 0 then return nil end
+
+    local best, bestScore
+
+    for _, o in ipairs(PlayerGui:GetDescendants()) do
+        if (o:IsA("TextLabel") or o:IsA("TextButton"))
+        and o.Visible
+        and IsVisible(o)
+        and o ~= Status
+        and not o:IsDescendantOf(GUI) then
+
+            local txt = o.Text or ""
+
+            -- 숫자만 있는 라벨 (골드/체력처럼 쉼표, 슬래시, %가 있는 것 제외)
+            if txt:match("^%s*%d+%s*$") then
+                local c = o.AbsolutePosition + o.AbsoluteSize / 2
+
+                -- 화면 가로 중앙, 세로 약 82% 지점 (체력바 바로 위)
+                local dx = math.abs(c.X - vp.X * 0.5) / vp.X
+                local dy = math.abs(c.Y - vp.Y * 0.82) / vp.Y
+                local score = dx + dy
+
+                -- 이름에 level/lv/레벨이 들어 있으면 가산점
+                local path = o:GetFullName():lower()
+                if path:find("level", 1, true)
+                or path:find("lv", 1, true)
+                or path:find("레벨", 1, true) then
+                    score = score - 0.1
+                end
+
+                if score < 0.08 and (not bestScore or score < bestScore) then
+                    best, bestScore = o, score
+                end
+            end
+        end
+    end
+
+    return best
+end
+
 local function GetPlayerLevel()
-    local function ParseNumber(value)
-        if value == nil then return nil end
-
-        local number = tonumber(
-            tostring(value):gsub(",", ""):gsub("%s", "")
-        )
-
-        if number and number >= 1 and number <= 10000 then
-            return math.floor(number)
-        end
-
-        return nil
+    -- 1) 캐시된 라벨이 유효하면 현재 값을 읽는다
+    if not IsLevelLabelValid(LevelLabel) then
+        LevelLabel = FindLevelLabel()
     end
 
-    -- 1. 내부 데이터에서 레벨 이름 검색
-    local containers = {
+    if LevelLabel then
+        local n = ToNum(LevelLabel.Text)
+        if n then return n end
+    end
+
+    -- 2) leaderstats / Data 등의 값 객체
+    for _, root in ipairs({
         Player:FindFirstChild("leaderstats"),
-        Player
-    }
-
-    for _, container in ipairs(containers) do
-        if container then
-            for _, obj in ipairs(container:GetDescendants()) do
-                local name = obj.Name:lower()
-
-                if name == "level"
-                or name == "lvl"
-                or name == "playerlevel"
-                or name == "레벨" then
-
-                    if obj:IsA("IntValue")
-                    or obj:IsA("NumberValue")
-                    or obj:IsA("StringValue") then
-
-                        local number = ParseNumber(obj.Value)
-                        if number then return number end
-                    end
-                end
+        Player:FindFirstChild("Data"),
+    }) do
+        for _, v in ipairs(root and root:GetDescendants() or {}) do
+            if (v:IsA("IntValue") or v:IsA("NumberValue") or v:IsA("StringValue"))
+            and (v.Name:lower():find("level", 1, true) or v.Name:lower() == "lv") then
+                local n = ToNum(v.Value)
+                if n then return n end
             end
         end
     end
 
-    -- 2. Level/Lv/레벨 문구가 포함된 GUI
+    -- 3) Attribute
+    for name, val in pairs(Player:GetAttributes()) do
+        local lname = name:lower()
+        if lname:find("level", 1, true) or lname == "lv" then
+            local n = ToNum(val)
+            if n then return n end
+        end
+    end
+
+    -- 4) 화면 텍스트 (Level 12 / Lv. 12 / 레벨 12)
     for _, obj in ipairs(PlayerGui:GetDescendants()) do
-        if (obj:IsA("TextLabel") or obj:IsA("TextButton"))
-        and obj.Visible then
-
+        if IsVisible(obj) and not obj:IsDescendantOf(GUI) then
             local txt = obj.Text or ""
+            local n = txt:match("[Ll][Ee][Vv][Ee][Ll]%s*[:%-]?%s*(%d[%d,]*)")
+                or txt:match("[Ll][Vv]%.?%s*[:%-]?%s*(%d[%d,]*)")
+                or txt:match("레벨%s*[:%-]?%s*(%d[%d,]*)")
 
-            local raw =
-                txt:match("[Ll]evel%s*[:%.%-]?%s*([%d,]+)")
-                or txt:match("[Ll]v%.?%s*([%d,]+)")
-                or txt:match("레벨%s*[:%.]?%s*([%d,]+)")
-
-            local number = ParseNumber(raw)
-            if number then return number end
-        end
-    end
-
-    -- 3. 숫자만 있는 HUD 후보 검색
-    local roots = {PlayerGui}
-    pcall(function()
-        table.insert(roots, CoreGui)
-    end)
-
-    local numeric = {}
-    local anchors = {}
-
-    for _, rootGui in ipairs(roots) do
-        for _, obj in ipairs(rootGui:GetDescendants()) do
-            if (obj:IsA("TextLabel") or obj:IsA("TextButton"))
-            and obj.Visible
-            and not obj:IsDescendantOf(GUI) then
-
-                local original = obj.Text or ""
-                local lower = original:lower()
-                local txt = original:gsub(",", ""):gsub("%s", "")
-
-                if lower:find("money")
-                or lower:find("beli")
-                or lower:find("gem")
-                or lower:find("cash")
-                or lower:find("bounty") then
-                    table.insert(anchors, obj)
-                end
-
-                if txt:match("^%d+$") then
-                    local value = ParseNumber(txt)
-
-                    if value and obj.TextSize >= 16 then
-                        table.insert(numeric, {
-                            value = value,
-                            size = obj.TextSize,
-                            x = obj.AbsolutePosition.X,
-                            y = obj.AbsolutePosition.Y,
-                            width = obj.AbsoluteSize.X,
-                            height = obj.AbsoluteSize.Y
-                        })
-                    end
-                end
+            if n then
+                n = ToNum(n)
+                if n then return n end
             end
         end
     end
 
-    -- 돈/젬 표시 사이에 있는 숫자 우선
-    for _, candidate in ipairs(numeric) do
-        for i = 1, #anchors do
-            for j = i + 1, #anchors do
-                local a = anchors[i]
-                local b = anchors[j]
-
-                local left = math.min(
-                    a.AbsolutePosition.X,
-                    b.AbsolutePosition.X
-                )
-
-                local right = math.max(
-                    a.AbsolutePosition.X + a.AbsoluteSize.X,
-                    b.AbsolutePosition.X + b.AbsoluteSize.X
-                )
-
-                local ay = a.AbsolutePosition.Y + a.AbsoluteSize.Y / 2
-                local by = b.AbsolutePosition.Y + b.AbsoluteSize.Y / 2
-                local cy = candidate.y + candidate.height / 2
-
-                if candidate.x > left
-                and candidate.x < right
-                and math.abs(cy - ay) < 45
-                and math.abs(cy - by) < 45 then
-                    return candidate.value
-                end
-            end
-        end
-    end
-
-    -- 확실하지 않은 숫자를 레벨로 오인하지 않음
     return nil
 end
 
@@ -370,7 +406,10 @@ local function GetTarget(txt)
 
     if name then
         name = name:gsub("^%s+", ""):gsub("%s+$", "")
-        if #name > 1 then return name end
+
+        if #name > 1 then
+            return name
+        end
     end
 end
 
@@ -385,7 +424,10 @@ local function ReadQuest()
                 local ancestor = progressObj.Parent
                 local depth = 0
 
-                while ancestor and ancestor ~= PlayerGui and depth <= 8 do
+                while ancestor
+                and ancestor ~= PlayerGui
+                and depth <= 8 do
+
                     for _, obj in ipairs(ancestor:GetDescendants()) do
                         if obj ~= progressObj and IsVisible(obj) then
                             local target = GetTarget(obj.Text or "")
@@ -399,12 +441,15 @@ local function ReadQuest()
                                         depth = depth
                                     }
                                 end
+
                                 break
                             end
                         end
                     end
 
-                    if best and best.depth == depth then break end
+                    if best and best.depth == depth then
+                        break
+                    end
 
                     ancestor = ancestor.Parent
                     depth = depth + 1
@@ -419,31 +464,35 @@ local function ReadQuest()
 end
 
 --========================================
--- 퀘스트 메뉴
+-- 퀘스트 메뉴 확인
 --========================================
 
 local function HasQuestMenu()
     for _, obj in ipairs(PlayerGui:GetDescendants()) do
-        if IsVisible(obj)
-        and (obj.Text or ""):lower():find("select a quest", 1, true) then
-            return true
+        if IsVisible(obj) then
+            if (obj.Text or ""):lower():find("select a quest", 1, true) then
+                return true
+            end
         end
     end
+
     return false
 end
 
 local function ReadRequiredLevel()
     for _, obj in ipairs(PlayerGui:GetDescendants()) do
         if IsVisible(obj) then
-            local number = (obj.Text or ""):match(
-                "[Ll]evel%s+[Rr]equired%s*:%s*([%d,]+)"
-            )
+            local txt = obj.Text or ""
+
+            local number = txt:match("[Ll]evel%s+[Rr]equired%s*:%s*([%d,]+)")
 
             if number then
-                return tonumber(number:gsub(",", ""))
+                return ToNum(number)
             end
         end
     end
+
+    return nil
 end
 
 local function FindQuestPanel()
@@ -454,7 +503,9 @@ local function FindQuestPanel()
             local node = obj.Parent
 
             for _ = 1, 8 do
-                if not node or node == PlayerGui then break end
+                if not node or node == PlayerGui then
+                    break
+                end
 
                 local count = 0
 
@@ -464,11 +515,16 @@ local function FindQuestPanel()
                     end
                 end
 
-                if count >= 2 then return node end
+                if count >= 2 then
+                    return node
+                end
+
                 node = node.Parent
             end
         end
     end
+
+    return nil
 end
 
 --========================================
@@ -497,12 +553,15 @@ local function SelectLevelQuest(level)
         end
     end
 
+    -- 화면 아래쪽 버튼부터 확인
     table.sort(buttons, function(a, b)
         return a.AbsolutePosition.Y > b.AbsolutePosition.Y
     end)
 
     for _, button in ipairs(buttons) do
-        if not Enabled then return false, "중지됨" end
+        if not Enabled then
+            return false, "중지됨"
+        end
 
         ClickButton(button)
         task.wait(0.45)
@@ -515,11 +574,13 @@ local function SelectLevelQuest(level)
             if confirm then
                 ClickButton(confirm)
                 task.wait(0.5)
+
                 return true, "퀘스트 수락: " .. button.Text
             end
         end
 
         local back = FindButton("Return")
+
         if back then
             ClickButton(back)
             task.wait(0.35)
@@ -529,14 +590,24 @@ local function SelectLevelQuest(level)
     return false, "현재 레벨에 맞는 퀘스트를 찾지 못했습니다"
 end
 
+--========================================
+-- 퀘스트 상세 화면 확인 및 수락
+--========================================
+
 local function ConfirmEligibleQuest(level)
     local required = ReadRequiredLevel()
 
-    if not required then return false end
+    if not required then
+        return false
+    end
 
     if required > level then
         local back = FindButton("Return")
-        if back then ClickButton(back) end
+
+        if back then
+            ClickButton(back)
+        end
+
         return false
     end
 
@@ -545,6 +616,7 @@ local function ConfirmEligibleQuest(level)
     if confirm then
         ClickButton(confirm)
         task.wait(0.5)
+
         return true
     end
 
@@ -559,16 +631,21 @@ local function FindQuestNPC()
     local char = Player.Character
     local myRoot = char and char:FindFirstChild("HumanoidRootPart")
 
-    if not myRoot then return nil end
+    if not myRoot then
+        return nil
+    end
 
     local candidates = {}
 
     for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("ProximityPrompt") or obj:IsA("ClickDetector") then
+        if obj:IsA("ProximityPrompt")
+        or obj:IsA("ClickDetector") then
+
             local model = obj:FindFirstAncestorOfClass("Model")
 
             if model and model ~= char then
-                local root = model:FindFirstChild("HumanoidRootPart")
+                local root =
+                    model:FindFirstChild("HumanoidRootPart")
                     or model.PrimaryPart
 
                 if root then
@@ -576,7 +653,9 @@ local function FindQuestNPC()
                     local promptText = ""
 
                     if obj:IsA("ProximityPrompt") then
-                        promptText = (obj.ActionText .. " " .. obj.ObjectText):lower()
+                        promptText = (
+                            obj.ActionText .. " " .. obj.ObjectText
+                        ):lower()
                     end
 
                     local hasBillboard =
@@ -614,10 +693,15 @@ local function TryInteractNPC()
 
     local npc = FindQuestNPC()
 
-    if not npc then return "퀘스트 NPC를 찾지 못했습니다" end
+    if not npc then
+        return "퀘스트 NPC를 찾지 못했습니다"
+    end
 
     local char = Player.Character
-    if not char then return "캐릭터 대기 중" end
+
+    if not char then
+        return "캐릭터 대기 중"
+    end
 
     LastNPCInteract = os.clock()
 
@@ -625,6 +709,7 @@ local function TryInteractNPC()
         pcall(function()
             char:PivotTo(npc.root.CFrame * CFrame.new(0, 0, 5))
         end)
+
         return "퀘스트 NPC로 이동 시도 중..."
     end
 
@@ -647,7 +732,9 @@ local function TryInteractNPC()
             end)
         end
 
-        if success then return "퀘스트 NPC 상호작용 시도" end
+        if success then
+            return "퀘스트 NPC 상호작용 시도"
+        end
 
     elseif interaction:IsA("ClickDetector") then
         if typeof(fireclickdetector) == "function" then
@@ -655,7 +742,9 @@ local function TryInteractNPC()
                 fireclickdetector(interaction)
             end)
 
-            if success then return "퀘스트 NPC 클릭 시도" end
+            if success then
+                return "퀘스트 NPC 클릭 시도"
+            end
         end
     end
 
@@ -674,8 +763,8 @@ local function TryAutoQuest()
     end
 
     if HasQuestMenu() then
-        local success, message = SelectLevelQuest(level)
-        return message
+        local _, message = SelectLevelQuest(level)
+        return "[Lv " .. level .. "] " .. tostring(message)
     end
 
     local required = ReadRequiredLevel()
@@ -684,10 +773,11 @@ local function TryAutoQuest()
         if ConfirmEligibleQuest(level) then
             return "레벨 " .. level .. " 퀘스트 수락 완료"
         end
-        return "퀘스트 레벨 확인 중..."
+
+        return "퀘스트 레벨 확인 중... (내 레벨 " .. level .. ")"
     end
 
-    return TryInteractNPC()
+    return "[Lv " .. level .. "] " .. TryInteractNPC()
 end
 
 --========================================
@@ -702,7 +792,10 @@ local function FindMonster(target)
         and obj.Name:lower():find(target:lower(), 1, true) then
 
             local hum = obj:FindFirstChildOfClass("Humanoid")
-            local root = obj:FindFirstChild("HumanoidRootPart") or obj.PrimaryPart
+
+            local root =
+                obj:FindFirstChild("HumanoidRootPart")
+                or obj.PrimaryPart
 
             if hum and hum.Health > 0 and root then
                 table.insert(matches, obj)
@@ -727,12 +820,15 @@ local function FindMonster(target)
 end
 
 --========================================
--- 스킬 키 입력 및 쿨타임 감지
+-- 스킬 키 입력
 --========================================
 
 local function PressKey(key)
     local kc = Enum.KeyCode[key]
-    if not kc then return false end
+
+    if not kc then
+        return false
+    end
 
     return pcall(function()
         VirtualInput:SendKeyEvent(true, kc, false, game)
@@ -746,19 +842,13 @@ local function FindSkillKeyLabels()
 
     for _, obj in ipairs(PlayerGui:GetDescendants()) do
         if IsVisible(obj) then
-            local key = (obj.Text or ""):upper():match(
-                "^%s*([ZXCV E])%s*$"
-            )
+            local key = (obj.Text or ""):upper():match("^%s*([ZXCVEF])%s*$")
 
             if key then
-                key = key:gsub("%s", "")
-
-                if key ~= "" then
-                    table.insert(found, {
-                        label = obj,
-                        key = key
-                    })
-                end
+                table.insert(found, {
+                    label = obj,
+                    key = key
+                })
             end
         end
     end
@@ -766,14 +856,19 @@ local function FindSkillKeyLabels()
     return found
 end
 
+-- 회색 쿨타임 표시 감지
 local function IsCooldownVisible(label)
     local node = label.Parent
 
     for _ = 1, 3 do
-        if not node then break end
+        if not node then
+            break
+        end
 
         for _, child in ipairs(node:GetDescendants()) do
-            if child:IsA("Frame") or child:IsA("ImageLabel") then
+            if child:IsA("Frame")
+            or child:IsA("ImageLabel") then
+
                 local gray = child.BackgroundColor3
 
                 local looksGray = gray
@@ -801,6 +896,7 @@ local function UseReadySkills()
     for _, item in ipairs(FindSkillKeyLabels()) do
         local label = item.label
         local key = item.key
+
         local skillId = label:GetFullName() .. ":" .. key
         local now = os.clock()
 
@@ -816,6 +912,78 @@ local function UseReadySkills()
 end
 
 --========================================
+-- 열매 / 칼 / 주먹 자동 전환
+--========================================
+
+local CurrentSlot = 0
+local SlotSince = 0
+local SlotDuration = 2.5      -- 한 무기로 싸우는 시간(초)
+local FallbackKeys = { "Z", "X", "C", "V", "F" }
+local FallbackIndex = 0
+local LastFallback = 0
+
+local function NextEnabledSlot(from)
+    for step = 1, #SlotConfig do
+        local i = ((from + step - 1) % #SlotConfig) + 1
+
+        if SlotConfig[i].on then
+            return i
+        end
+    end
+
+    return nil
+end
+
+local function EquipSlot(char, index)
+    local slot = SlotConfig[index]
+
+    -- 숫자 키로 장착 (이미 들고 있는 슬롯이면 해제되므로 다시 한 번 누름)
+    if PressKey(slot.key) then
+        task.wait(0.2)
+
+        if not char:FindFirstChildOfClass("Tool") then
+            PressKey(slot.key)
+            task.wait(0.2)
+        end
+    end
+
+    -- 키 입력이 안 먹히면 Backpack 순서로 직접 장착
+    if not char:FindFirstChildOfClass("Tool") then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        local backpack = Player:FindFirstChildOfClass("Backpack")
+
+        if hum and backpack then
+            local tools = {}
+
+            for _, t in ipairs(backpack:GetChildren()) do
+                if t:IsA("Tool") then
+                    table.insert(tools, t)
+                end
+            end
+
+            if tools[index] then
+                pcall(function()
+                    hum:EquipTool(tools[index])
+                end)
+            end
+        end
+    end
+
+    return char:FindFirstChildOfClass("Tool")
+end
+
+-- 스킬 라벨이 화면에서 안 잡힐 때 Z/X/C/V/F를 순서대로 사용
+local function UseFallbackSkills()
+    if os.clock() - LastFallback < 1.2 then
+        return
+    end
+
+    LastFallback = os.clock()
+    FallbackIndex = (FallbackIndex % #FallbackKeys) + 1
+    PressKey(FallbackKeys[FallbackIndex])
+end
+
+--========================================
 -- 몬스터 공격
 --========================================
 
@@ -823,7 +991,9 @@ local function AttackTarget(targetName)
     local char = Player.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
 
-    if not root then return "캐릭터 대기 중" end
+    if not root then
+        return "캐릭터 대기 중"
+    end
 
     local monster = FindMonster(targetName)
 
@@ -835,7 +1005,9 @@ local function AttackTarget(targetName)
         monster:FindFirstChild("HumanoidRootPart")
         or monster.PrimaryPart
 
-    if not monsterRoot then return "몬스터 위치 확인 실패" end
+    if not monsterRoot then
+        return "몬스터 위치 확인 실패"
+    end
 
     if (root.Position - monsterRoot.Position).Magnitude > 12
     and os.clock() - LastMove > 1.5 then
@@ -847,6 +1019,27 @@ local function AttackTarget(targetName)
         end)
     end
 
+    -- 일정 시간마다 열매 -> 칼 -> 주먹 순으로 전환
+    local now = os.clock()
+
+    if CurrentSlot == 0
+    or now - SlotSince > SlotDuration
+    or not SlotConfig[CurrentSlot].on then
+
+        local nextSlot = NextEnabledSlot(CurrentSlot)
+
+        if nextSlot then
+            if nextSlot ~= CurrentSlot
+            or not char:FindFirstChildOfClass("Tool") then
+                EquipSlot(char, nextSlot)
+            end
+
+            CurrentSlot = nextSlot
+            SlotSince = os.clock()
+        end
+    end
+
+    -- 평타
     if os.clock() - LastAttack > 0.45 then
         LastAttack = os.clock()
 
@@ -859,13 +1052,23 @@ local function AttackTarget(targetName)
         end
     end
 
-    UseReadySkills()
+    -- 스킬
+    if #FindSkillKeyLabels() > 0 then
+        UseReadySkills()
+    else
+        UseFallbackSkills()
+    end
 
-    return "사냥 중: " .. targetName
+    local slotName = (CurrentSlot > 0 and SlotConfig[CurrentSlot].name) or "-"
+    local tool = char:FindFirstChildOfClass("Tool")
+    local toolName = tool and tool.Name or "없음"
+
+    return "사냥 중: " .. targetName ..
+        "\n사용: " .. slotName .. " (" .. toolName .. ")"
 end
 
 --========================================
--- 메인 반복 실행
+-- 메인 반복 실행 (에러가 나도 루프가 멈추지 않도록 pcall)
 --========================================
 
 task.spawn(function()
@@ -873,22 +1076,29 @@ task.spawn(function()
         task.wait(0.65)
 
         if Enabled then
-            local target, current, required = ReadQuest()
+            local okLoop, err = pcall(function()
+                local target, current, required = ReadQuest()
 
-            if target then
-                local result = AttackTarget(target)
+                if target then
+                    local result = AttackTarget(target)
 
-                Status.Text =
-                    "퀘스트: " .. target ..
-                    "\n진행도: " .. current .. "/" .. required ..
-                    "\n" .. result
-            else
-                local result = TryAutoQuest()
+                    Status.Text =
+                        "퀘스트: " .. target ..
+                        "\n진행도: " .. current .. "/" .. required ..
+                        "\n" .. result
+                else
+                    local result = TryAutoQuest()
 
-                Status.Text =
-                    "자동 퀘스트 진행 중" ..
-                    "\n" .. result
+                    Status.Text =
+                        "자동 퀘스트 진행 중" ..
+                        "\n" .. result
+                end
+            end)
+
+            if not okLoop then
+                Status.Text = "오류: " .. tostring(err)
             end
         end
     end
 end)
+
