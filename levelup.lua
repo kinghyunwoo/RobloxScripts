@@ -1,12 +1,13 @@
 
 --==================================================
 -- kinghyunwoo LEVEL UP
--- GUI + LEVEL DETECTION + AUTO QUEST + ATTACK
+-- AUTO QUEST + NPC PROMPT/TOUCH + AUTO ATTACK
 --==================================================
 
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
 local VirtualInput = game:GetService("VirtualInputManager")
+local UserInputService = game:GetService("UserInputService")
 
 local Player = Players.LocalPlayer
 
@@ -14,16 +15,20 @@ local Settings = {
     Enabled = false,
     AttackEnabled = true,
     SkillEnabled = false,
+
     QuestDistance = 12,
     MonsterDistance = 18,
+
     AttackInterval = 0.4,
-    QuestInterval = 3
+    QuestInterval = 3,
+    NpcRetryDelay = 8
 }
 
-local SkillKeys = {"Z", "X", "C", "V", "E"}
 local LastAttack = 0
 local LastQuestAction = 0
 local CurrentLevel = nil
+
+local NpcAttempts = setmetatable({}, {__mode = "k"})
 
 --==================================================
 -- GUI
@@ -75,6 +80,7 @@ end
 
 local Title = MakeLabel("kinghyunwoo LEVEL UP", 5, 30)
 Title.TextSize = 17
+Title.Active = true
 
 local Close = Instance.new("TextButton")
 Close.Size = UDim2.new(0, 30, 0, 28)
@@ -108,10 +114,9 @@ Toggle.Parent = Frame
 
 Instance.new("UICorner", Toggle).CornerRadius = UDim.new(0, 8)
 
-local minimized = false
-
 Toggle.MouseButton1Click:Connect(function()
     Settings.Enabled = not Settings.Enabled
+
     Toggle.Text = Settings.Enabled
         and "자동 레벨업 : ON"
         or "자동 레벨업 : OFF"
@@ -120,6 +125,47 @@ Toggle.MouseButton1Click:Connect(function()
         and "상태: 작동 중"
         or "상태: OFF"
 end)
+
+-- GUI 드래그: PC 마우스 및 모바일 터치
+do
+    local dragging = false
+    local dragStart
+    local startPosition
+
+    Title.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+
+            dragging = true
+            dragStart = input.Position
+            startPosition = Frame.Position
+
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (
+            input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch
+        ) then
+            local delta = input.Position - dragStart
+
+            Frame.Position = UDim2.new(
+                startPosition.X.Scale,
+                startPosition.X.Offset + delta.X,
+                startPosition.Y.Scale,
+                startPosition.Y.Offset + delta.Y
+            )
+        end
+    end)
+end
+
+local minimized = false
 
 Minimize.MouseButton1Click:Connect(function()
     minimized = not minimized
@@ -165,7 +211,7 @@ end
 
 --==================================================
 -- LEVEL DETECTION
--- 기존 HUD 인식 방식 유지
+-- 기존 성공한 레벨 인식 코드 유지
 --==================================================
 
 local function FindLevel()
@@ -237,6 +283,7 @@ end
 local function GetVisibleTextObjects()
     local result = {}
     local playerGui = Player:FindFirstChildOfClass("PlayerGui")
+
     if not playerGui then return result end
 
     for _, obj in ipairs(playerGui:GetDescendants()) do
@@ -285,13 +332,18 @@ end
 
 local function IsQuestDialogOpen()
     local text = GetDialogText():lower()
+    local buttons = GetVisibleButtons()
 
     return text:find("select a quest", 1, true) ~= nil
         or text:find("level required", 1, true) ~= nil
+        or (
+            text:find("quest", 1, true) ~= nil
+            and #buttons >= 1
+        )
 end
 
 --==================================================
--- READ QUEST DETAILS
+-- QUEST DETAILS
 --==================================================
 
 local function ReadQuestDetails()
@@ -306,23 +358,9 @@ local function ReadQuestDetails()
     local required = tonumber(requiredText:gsub(",", ""))
     if not required then return nil end
 
-    local objective = text:match(
-        "[Oo]bjective%s*:?%s*(.-)%s*%$[%d,]+"
+    local count, target = text:match(
+        "[Kk]ill%s+(%d+)%s+([%w%s]+)"
     )
-
-    local count, target
-
-    if objective then
-        count, target = objective:match(
-            "[Kk]ill%s+(%d+)%s+(.+)"
-        )
-    end
-
-    if not count then
-        count, target = text:match(
-            "[Kk]ill%s+(%d+)%s+([%w%s]+)"
-        )
-    end
 
     if target then
         target = target:gsub("%s+$", "")
@@ -335,10 +373,6 @@ local function ReadQuestDetails()
     }
 end
 
---==================================================
--- FIND QUEST OPTIONS
---==================================================
-
 local function FindQuestOptionButtons()
     local result = {}
 
@@ -349,9 +383,7 @@ local function FindQuestOptionButtons()
             and not name:find("confirm", 1, true)
             and not name:find("return", 1, true)
             and not name:find("abandon", 1, true)
-            and not name:find("close", 1, true)
-            and not name:find("kinghyunwoo", 1, true) then
-
+            and not name:find("close", 1, true) then
             table.insert(result, button)
         end
     end
@@ -361,11 +393,11 @@ end
 
 --==================================================
 -- AUTOMATIC QUEST SELECTION
--- 현재 레벨 이하 중 가장 높은 요구 레벨 선택
 --==================================================
 
 local function TryQuest()
     if not CurrentLevel then return false end
+
     if os.clock() - LastQuestAction < Settings.QuestInterval then
         return false
     end
@@ -375,8 +407,17 @@ local function TryQuest()
     LastQuestAction = os.clock()
 
     local dialogText = GetDialogText():lower()
+    local buttons = GetVisibleButtons()
 
-    if dialogText:find("select a quest", 1, true) then
+    local isChoiceMenu =
+        dialogText:find("select a quest", 1, true) ~= nil
+        or (
+            dialogText:find("quest", 1, true) ~= nil
+            and #buttons >= 2
+            and dialogText:find("level required", 1, true) == nil
+        )
+
+    if isChoiceMenu then
         local options = FindQuestOptionButtons()
 
         local bestButton = nil
@@ -434,16 +475,16 @@ local function TryQuest()
                 QuestLabel.Text = "퀘스트: Confirm 탐색 실패"
             end
         else
-            QuestLabel.Text = "퀘스트: 레벨에 맞는 항목 없음"
+            QuestLabel.Text = "퀘스트: 레벨 조건 확인 실패"
         end
 
         return true
     end
 
-    if dialogText:find("level required", 1, true) then
-        local details = ReadQuestDetails()
+    local details = ReadQuestDetails()
 
-        if details and details.RequiredLevel <= CurrentLevel then
+    if details then
+        if details.RequiredLevel <= CurrentLevel then
             local confirm = FindDialogButton("confirm")
 
             if confirm then
@@ -470,51 +511,141 @@ local function TryQuest()
 end
 
 --==================================================
--- QUEST NPC
+-- NPC DISCOVERY
+-- ProximityPrompt first, then direct touch candidates
 --==================================================
+
+local function GetModelOverheadText(model)
+    local parts = {}
+
+    for _, obj in ipairs(model:GetDescendants()) do
+        if (obj:IsA("TextLabel") or obj:IsA("TextButton"))
+            and obj.Text and obj.Text ~= "" then
+            table.insert(parts, tostring(obj.Text):lower())
+        end
+    end
+
+    return table.concat(parts, " ")
+end
+
+local function IsUsableNpcModel(model)
+    if not model or model == GetCharacter() then
+        return false
+    end
+
+    local humanoid = model:FindFirstChildOfClass("Humanoid")
+    local part = model:FindFirstChild("HumanoidRootPart")
+        or model:FindFirstChild("Head")
+        or model:FindFirstChildWhichIsA("BasePart")
+
+    if not humanoid or not part or humanoid.Health <= 0 then
+        return false
+    end
+
+    local activeTarget = ReadQuestTarget()
+
+    if activeTarget
+        and model.Name:lower():find(activeTarget:lower(), 1, true) then
+        return false
+    end
+
+    return true, part
+end
 
 local function FindQuestNPC()
     local root = GetRoot()
     if not root then return nil end
 
-    local best = nil
-    local bestDistance = math.huge
+    local promptCandidates = {}
+    local touchCandidates = {}
     local seen = {}
 
+    -- 1) ProximityPrompt가 붙은 NPC 수집
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("ProximityPrompt") then
             local model = obj:FindFirstAncestorOfClass("Model")
 
-            if model and model ~= GetCharacter()
-                and not seen[model] then
-
+            if model and not seen[model] then
                 seen[model] = true
 
-                local humanoid =
-                    model:FindFirstChildOfClass("Humanoid")
+                local valid, part = IsUsableNpcModel(model)
 
-                local part =
-                    model:FindFirstChild("HumanoidRootPart")
-                    or model:FindFirstChildWhichIsA("BasePart")
+                if valid then
+                    local distance = (root.Position - part.Position).Magnitude
+                    local last = NpcAttempts[model] or 0
 
-                if humanoid and part then
-                    local distance =
-                        (root.Position - part.Position).Magnitude
-
-                    if distance < bestDistance then
-                        bestDistance = distance
-                        best = {
+                    if os.clock() - last >= Settings.NpcRetryDelay then
+                        table.insert(promptCandidates, {
+                            Model = model,
                             Part = part,
-                            Prompt = obj
-                        }
+                            Prompt = obj,
+                            Distance = distance,
+                            Mode = "Prompt"
+                        })
                     end
                 end
             end
         end
     end
 
-    return best
+    table.sort(promptCandidates, function(a, b)
+        return a.Distance < b.Distance
+    end)
+
+    if promptCandidates[1] then
+        return promptCandidates[1]
+    end
+
+    -- 2) Prompt가 없는 NPC는 이름표/모델명을 기준으로 수집
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("Model") and not seen[obj] then
+            local valid, part = IsUsableNpcModel(obj)
+
+            if valid then
+                local overhead = GetModelOverheadText(obj)
+                local hasBillboard =
+                    obj:FindFirstChildWhichIsA("BillboardGui", true) ~= nil
+
+                local name = obj.Name:lower()
+                local score = 0
+
+                if name:find("quest", 1, true) then score = score + 100 end
+                if name:find("npc", 1, true) then score = score + 40 end
+                if overhead:find("quest", 1, true) then score = score + 100 end
+                if overhead:find("npc", 1, true) then score = score + 40 end
+                if overhead:find("?", 1, true) then score = score + 25 end
+                if hasBillboard then score = score + 10 end
+
+                local last = NpcAttempts[obj] or 0
+
+                if score > 0
+                    and os.clock() - last >= Settings.NpcRetryDelay then
+
+                    table.insert(touchCandidates, {
+                        Model = obj,
+                        Part = part,
+                        Distance = (root.Position - part.Position).Magnitude,
+                        Score = score,
+                        Mode = "Touch"
+                    })
+                end
+            end
+        end
+    end
+
+    table.sort(touchCandidates, function(a, b)
+        if a.Score == b.Score then
+            return a.Distance < b.Distance
+        end
+        return a.Score > b.Score
+    end)
+
+    return touchCandidates[1]
 end
+
+--==================================================
+-- NPC INTERACTION
+--==================================================
 
 local function InteractQuestNPC()
     if IsQuestDialogOpen() then return end
@@ -522,32 +653,68 @@ local function InteractQuestNPC()
     local npc = FindQuestNPC()
 
     if not npc then
-        QuestLabel.Text = "퀘스트: NPC 탐색 실패"
+        QuestLabel.Text = "퀘스트: NPC 후보 탐색 실패"
         return
     end
 
     local root = GetRoot()
+    local character = GetCharacter()
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+
     if not root then return end
 
-    local distance =
-        (root.Position - npc.Part.Position).Magnitude
+    if npc.Mode == "Prompt" and npc.Prompt then
+        local prompt = npc.Prompt
+        local maxDistance = prompt.MaxActivationDistance or Settings.QuestDistance
 
-    if distance > Settings.QuestDistance then
-        MoveTo(npc.Part.Position)
-        QuestLabel.Text = "퀘스트: NPC 접근 중"
-    else
-        pcall(function()
+        if npc.Distance > math.max(maxDistance - 1, 2) then
+            MoveTo(npc.Part.Position)
+            QuestLabel.Text = "퀘스트: Prompt NPC 접근 중"
+            return
+        end
+
+        NpcAttempts[npc.Model] = os.clock()
+
+        local activated = pcall(function()
             if typeof(fireproximityprompt) == "function" then
-                fireproximityprompt(npc.Prompt)
+                fireproximityprompt(prompt)
             else
-                npc.Prompt:InputHoldBegin()
-                task.wait(math.max(npc.Prompt.HoldDuration, 0.1))
-                npc.Prompt:InputHoldEnd()
+                prompt:InputHoldBegin()
+                task.wait(math.max(prompt.HoldDuration, 0.1))
+                prompt:InputHoldEnd()
             end
         end)
 
-        QuestLabel.Text = "퀘스트: NPC 상호작용"
+        QuestLabel.Text = activated
+            and "퀘스트: Prompt 실행 시도"
+            or "퀘스트: Prompt 실행 실패"
+
+        return
     end
+
+    -- Prompt가 없는 NPC: 직접 접촉
+    if npc.Distance > 5 then
+        MoveTo(npc.Part.Position)
+        QuestLabel.Text = "퀘스트: NPC 접촉 위치로 이동 중"
+        return
+    end
+
+    NpcAttempts[npc.Model] = os.clock()
+
+    pcall(function()
+        local direction = npc.Part.CFrame.LookVector
+
+        root.CFrame = CFrame.new(
+            npc.Part.Position + direction * 1.25 + Vector3.new(0, 0.5, 0),
+            npc.Part.Position
+        )
+
+        if humanoid then
+            humanoid:MoveTo(npc.Part.Position)
+        end
+    end)
+
+    QuestLabel.Text = "퀘스트: NPC 직접 접촉 시도"
 end
 
 --==================================================
@@ -590,18 +757,13 @@ local function FindMonster()
 
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("Model") and obj ~= GetCharacter() then
-            local humanoid =
-                obj:FindFirstChildOfClass("Humanoid")
-
-            local monsterRoot =
-                obj:FindFirstChild("HumanoidRootPart")
+            local humanoid = obj:FindFirstChildOfClass("Humanoid")
+            local monsterRoot = obj:FindFirstChild("HumanoidRootPart")
                 or obj:FindFirstChildWhichIsA("BasePart")
 
             if humanoid and monsterRoot
                 and humanoid.Health > 0
-                and obj.Name:lower():find(
-                    targetName:lower(), 1, true
-                ) then
+                and obj.Name:lower():find(targetName:lower(), 1, true) then
 
                 local distance =
                     (root.Position - monsterRoot.Position).Magnitude
@@ -636,6 +798,7 @@ end
 
 local function BasicAttack()
     if not Settings.AttackEnabled then return end
+
     if os.clock() - LastAttack < Settings.AttackInterval then
         return
     end
@@ -657,27 +820,13 @@ end
 
 --==================================================
 -- SKILLS
--- 쿨타임 UI 판별은 아직 연결되지 않아 기본 OFF
+-- 쿨타임 UI 판별 미연결: 기본 OFF
 --==================================================
-
-local function PressKey(key)
-    pcall(function()
-        VirtualInput:SendKeyEvent(
-            true, Enum.KeyCode[key], false, game
-        )
-
-        task.wait(0.05)
-
-        VirtualInput:SendKeyEvent(
-            false, Enum.KeyCode[key], false, game
-        )
-    end)
-end
 
 local function UseSkills()
     if not Settings.SkillEnabled then return end
 
-    -- 스킬별 쿨타임 표시 판별을 확인한 뒤 연결할 것
+    -- 스킬별 쿨타임 표시 확인 후 연결
 end
 
 --==================================================
@@ -725,8 +874,7 @@ task.spawn(function()
                             end
                         end
                     else
-                        MonsterLabel.Text =
-                            "몬스터 탐색 중: " .. activeTarget
+                        MonsterLabel.Text = "몬스터 탐색 중: " .. activeTarget
                     end
                 else
                     MonsterLabel.Text = "몬스터: 대기 중"
