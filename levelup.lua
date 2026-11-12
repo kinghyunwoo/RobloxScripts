@@ -1,7 +1,7 @@
 
 --==================================================
 -- kinghyunwoo LEVEL UP
--- GUI + AUTO LEVEL DETECTION V4
+-- V5 : LEVEL DETECTION + NPC SCANNER
 --==================================================
 
 local Players = game:GetService("Players")
@@ -12,15 +12,17 @@ local Player = Players.LocalPlayer
 
 -- 기존 GUI 제거
 pcall(function()
-    CoreGui:FindFirstChild("kinghyunwoo_LEVELUP"):Destroy()
+    local old = CoreGui:FindFirstChild("kinghyunwoo_LEVELUP")
+    if old then old:Destroy() end
 end)
 
 pcall(function()
-    Player.PlayerGui:FindFirstChild("kinghyunwoo_LEVELUP"):Destroy()
+    local old = Player.PlayerGui:FindFirstChild("kinghyunwoo_LEVELUP")
+    if old then old:Destroy() end
 end)
 
 --==================================================
--- GUI 생성
+-- GUI
 --==================================================
 
 local Gui = Instance.new("ScreenGui")
@@ -38,8 +40,8 @@ end
 
 local Main = Instance.new("Frame")
 Main.Name = "Main"
-Main.Size = UDim2.fromOffset(300, 300)
-Main.Position = UDim2.new(0.5, -150, 0.5, -150)
+Main.Size = UDim2.fromOffset(310, 400)
+Main.Position = UDim2.new(0.5, -155, 0.5, -200)
 Main.BackgroundColor3 = Color3.fromRGB(25, 28, 38)
 Main.BorderSizePixel = 0
 Main.ClipsDescendants = true
@@ -52,9 +54,7 @@ Stroke.Color = Color3.fromRGB(70, 190, 150)
 Stroke.Thickness = 1.5
 Stroke.Parent = Main
 
--- 상단 바
 local Header = Instance.new("Frame")
-Header.Name = "Header"
 Header.Size = UDim2.new(1, 0, 0, 42)
 Header.BackgroundColor3 = Color3.fromRGB(35, 42, 55)
 Header.BorderSizePixel = 0
@@ -63,7 +63,6 @@ Header.Parent = Main
 
 Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 12)
 
--- 제목
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, -90, 1, 0)
 Title.Position = UDim2.fromOffset(12, 0)
@@ -77,7 +76,6 @@ Title.Active = true
 Title.ZIndex = 3
 Title.Parent = Header
 
--- 축소 버튼
 local Minimize = Instance.new("TextButton")
 Minimize.Name = "Minimize"
 Minimize.Size = UDim2.fromOffset(30, 28)
@@ -87,13 +85,11 @@ Minimize.Text = "-"
 Minimize.TextColor3 = Color3.new(1, 1, 1)
 Minimize.TextSize = 20
 Minimize.Font = Enum.Font.GothamBold
-Minimize.Active = true
 Minimize.ZIndex = 5
 Minimize.Parent = Header
 
 Instance.new("UICorner", Minimize).CornerRadius = UDim.new(0, 6)
 
--- 닫기 버튼
 local Close = Instance.new("TextButton")
 Close.Name = "Close"
 Close.Size = UDim2.fromOffset(30, 28)
@@ -103,13 +99,11 @@ Close.Text = "X"
 Close.TextColor3 = Color3.new(1, 1, 1)
 Close.TextSize = 16
 Close.Font = Enum.Font.GothamBold
-Close.Active = true
 Close.ZIndex = 5
 Close.Parent = Header
 
 Instance.new("UICorner", Close).CornerRadius = UDim.new(0, 6)
 
--- 레벨 표시
 local LevelLabel = Instance.new("TextLabel")
 LevelLabel.Size = UDim2.new(1, -24, 0, 35)
 LevelLabel.Position = UDim2.fromOffset(12, 52)
@@ -122,7 +116,6 @@ LevelLabel.Parent = Main
 
 Instance.new("UICorner", LevelLabel).CornerRadius = UDim.new(0, 8)
 
--- 상태 표시
 local Status = Instance.new("TextLabel")
 Status.Size = UDim2.new(1, -24, 0, 28)
 Status.Position = UDim2.fromOffset(12, 95)
@@ -133,7 +126,6 @@ Status.TextSize = 14
 Status.Font = Enum.Font.Gotham
 Status.Parent = Main
 
--- 정보 라벨
 local function MakeInfo(text, y)
     local label = Instance.new("TextLabel")
     label.Size = UDim2.new(1, -24, 0, 25)
@@ -152,10 +144,41 @@ local Quest = MakeInfo("퀘스트: 대기 중", 130)
 local Monster = MakeInfo("몬스터: 대기 중", 160)
 local Attack = MakeInfo("공격: 대기 중", 190)
 
+-- NPC 탐색 버튼
+local ScanButton = Instance.new("TextButton")
+ScanButton.Name = "ScanNPC"
+ScanButton.Size = UDim2.new(1, -24, 0, 35)
+ScanButton.Position = UDim2.fromOffset(12, 225)
+ScanButton.BackgroundColor3 = Color3.fromRGB(45, 115, 155)
+ScanButton.Text = "NPC 탐색하기"
+ScanButton.TextColor3 = Color3.new(1, 1, 1)
+ScanButton.TextSize = 15
+ScanButton.Font = Enum.Font.GothamBold
+ScanButton.Parent = Main
+
+Instance.new("UICorner", ScanButton).CornerRadius = UDim.new(0, 8)
+
+-- NPC 결과
+local NPCResults = Instance.new("TextLabel")
+NPCResults.Name = "NPCResults"
+NPCResults.Size = UDim2.new(1, -24, 0, 75)
+NPCResults.Position = UDim2.fromOffset(12, 268)
+NPCResults.BackgroundColor3 = Color3.fromRGB(38, 48, 60)
+NPCResults.Text = "NPC 탐색 전"
+NPCResults.TextColor3 = Color3.fromRGB(220, 225, 235)
+NPCResults.TextSize = 12
+NPCResults.Font = Enum.Font.Gotham
+NPCResults.TextXAlignment = Enum.TextXAlignment.Left
+NPCResults.TextYAlignment = Enum.TextYAlignment.Top
+NPCResults.TextWrapped = true
+NPCResults.Parent = Main
+
+Instance.new("UICorner", NPCResults).CornerRadius = UDim.new(0, 8)
+
 -- ON/OFF 버튼
 local Toggle = Instance.new("TextButton")
-Toggle.Size = UDim2.new(1, -24, 0, 42)
-Toggle.Position = UDim2.fromOffset(12, 235)
+Toggle.Size = UDim2.new(1, -24, 0, 38)
+Toggle.Position = UDim2.fromOffset(12, 355)
 Toggle.BackgroundColor3 = Color3.fromRGB(45, 130, 90)
 Toggle.Text = "자동 레벨업 : OFF"
 Toggle.TextColor3 = Color3.new(1, 1, 1)
@@ -178,48 +201,35 @@ Toggle.Activated:Connect(function()
         and Color3.fromRGB(35, 170, 110)
         or Color3.fromRGB(45, 130, 90)
 
-    Status.Text = Enabled
-        and "상태: 작동 ON"
-        or "상태: OFF"
+    Status.Text = Enabled and "상태: ON" or "상태: OFF"
 end)
 
 --==================================================
--- 레벨 인식 함수
+-- 레벨 인식
 --==================================================
 
 local function FindLevel()
-
     local Camera = workspace.CurrentCamera
-    if not Camera then
-        return nil
-    end
+    if not Camera then return nil end
 
     local Viewport = Camera.ViewportSize
-
     local candidates = {}
 
     local function Scan(container)
-        if not container then
-            return
-        end
+        if not container then return end
 
         for _, obj in ipairs(container:GetDescendants()) do
-
             if obj:IsA("TextLabel") or obj:IsA("TextButton") then
+                local cleanText = tostring(obj.Text or "")
+                    :gsub(",", "")
+                    :gsub("%s+", "")
 
-                local rawText = tostring(obj.Text or "")
-                local cleanText = rawText:gsub(",", ""):gsub("%s+", "")
-
-                -- 숫자만 있는 텍스트
                 if cleanText:match("^%d+$") then
-
                     local number = tonumber(cleanText)
 
                     if number and number >= 1 and number <= 1000000 then
-
                         local color = obj.TextColor3
 
-                        -- 노란색 글자 검사
                         if color.R > 0.65
                             and color.G > 0.35
                             and color.B < 0.45 then
@@ -227,27 +237,15 @@ local function FindLevel()
                             local pos = obj.AbsolutePosition
                             local size = obj.AbsoluteSize
 
-                            local centerX =
-                                (pos.X + size.X / 2) / Viewport.X
+                            local centerX = (pos.X + size.X / 2) / Viewport.X
+                            local centerY = (pos.Y + size.Y / 2) / Viewport.Y
 
-                            local centerY =
-                                (pos.Y + size.Y / 2) / Viewport.Y
+                            if centerX >= 0.42 and centerX <= 0.57
+                                and centerY >= 0.70 and centerY <= 0.82 then
 
-                            -- 화면 하단 중앙 영역
-                            if centerX >= 0.42
-                                and centerX <= 0.57
-                                and centerY >= 0.70
-                                and centerY <= 0.82 then
-
-                                local colorScore =
-                                    color.R + color.G - color.B
-
-                                local distance =
-                                    math.abs(centerX - 0.495)
-                                    + math.abs(centerY - 0.76)
-
-                                local score =
-                                    colorScore - distance
+                                local score = color.R + color.G - color.B
+                                    - math.abs(centerX - 0.495)
+                                    - math.abs(centerY - 0.76)
 
                                 table.insert(candidates, {
                                     Level = number,
@@ -271,14 +269,8 @@ local function FindLevel()
     return candidates[1] and candidates[1].Level or nil
 end
 
---==================================================
--- 실시간 레벨 업데이트
---==================================================
-
 task.spawn(function()
-
     while Gui.Parent do
-
         local level = FindLevel()
 
         if level then
@@ -294,6 +286,90 @@ task.spawn(function()
 end)
 
 --==================================================
+-- NPC 자동 탐색
+--==================================================
+
+local function ScanNPCs()
+    local character = Player.Character
+    local playerRoot = character and character:FindFirstChild("HumanoidRootPart")
+
+    if not playerRoot then
+        NPCResults.Text = "캐릭터 위치를 확인할 수 없습니다."
+        return
+    end
+
+    NPCResults.Text = "NPC 탐색 중..."
+
+    local found = {}
+    local seen = {}
+
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("Model") and not seen[obj] then
+
+            local humanoid = obj:FindFirstChildOfClass("Humanoid")
+            local root = obj:FindFirstChild("HumanoidRootPart")
+                or obj:FindFirstChild("Head")
+
+            if humanoid and root and obj ~= character then
+                local isPlayer = Players:GetPlayerFromCharacter(obj)
+
+                if not isPlayer then
+                    seen[obj] = true
+
+                    local distance = (root.Position - playerRoot.Position).Magnitude
+                    local promptCount = 0
+
+                    for _, child in ipairs(obj:GetDescendants()) do
+                        if child:IsA("ProximityPrompt") then
+                            promptCount = promptCount + 1
+                        end
+                    end
+
+                    table.insert(found, {
+                        Name = obj.Name,
+                        Distance = distance,
+                        Prompts = promptCount
+                    })
+                end
+            end
+        end
+    end
+
+    table.sort(found, function(a, b)
+        return a.Distance < b.Distance
+    end)
+
+    if #found == 0 then
+        NPCResults.Text = "NPC를 찾지 못했습니다.\n캐릭터 구조를 추가 확인해야 합니다."
+        return
+    end
+
+    local lines = {
+        "탐색된 NPC: " .. #found .. "개",
+        "가까운 NPC 목록:"
+    }
+
+    for i = 1, math.min(5, #found) do
+        local npc = found[i]
+
+        table.insert(lines,
+            string.format(
+                "%d. %s | %.0fm | 상호작용: %d",
+                i,
+                npc.Name,
+                npc.Distance,
+                npc.Prompts
+            )
+        )
+    end
+
+    NPCResults.Text = table.concat(lines, "\n")
+    Status.Text = "상태: NPC 탐색 완료"
+end
+
+ScanButton.Activated:Connect(ScanNPCs)
+
+--==================================================
 -- 축소 / 확대
 --==================================================
 
@@ -305,24 +381,23 @@ local ContentObjects = {
     Quest,
     Monster,
     Attack,
+    ScanButton,
+    NPCResults,
     Toggle
 }
 
 local function SetMinimized(state)
-
     minimized = state
 
     for _, object in ipairs(ContentObjects) do
         object.Visible = not minimized
     end
 
-    if minimized then
-        Main.Size = UDim2.fromOffset(300, 42)
-        Minimize.Text = "+"
-    else
-        Main.Size = UDim2.fromOffset(300, 300)
-        Minimize.Text = "-"
-    end
+    Main.Size = minimized
+        and UDim2.fromOffset(310, 42)
+        or UDim2.fromOffset(310, 400)
+
+    Minimize.Text = minimized and "+" or "-"
 end
 
 Minimize.Activated:Connect(function()
@@ -349,7 +424,6 @@ do
     local activeInput
 
     Title.InputBegan:Connect(function(input)
-
         if input.UserInputType == Enum.UserInputType.MouseButton1
             or input.UserInputType == Enum.UserInputType.Touch then
 
@@ -361,10 +435,7 @@ do
     end)
 
     UserInputService.InputChanged:Connect(function(input)
-
-        if not dragging then
-            return
-        end
+        if not dragging then return end
 
         if input.UserInputType == Enum.UserInputType.MouseMovement
             or input.UserInputType == Enum.UserInputType.Touch then
@@ -381,7 +452,6 @@ do
     end)
 
     UserInputService.InputEnded:Connect(function(input)
-
         if input == activeInput
             or input.UserInputType == Enum.UserInputType.MouseButton1 then
 
@@ -391,4 +461,4 @@ do
     end)
 end
 
-print("kinghyunwoo LEVEL UP V4 loaded")
+print("kinghyunwoo LEVEL UP V5 loaded")
