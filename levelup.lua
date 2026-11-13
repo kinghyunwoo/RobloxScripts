@@ -1,54 +1,47 @@
 
 --==================================================
--- KINGHYUNWOO QUEST LOGGER SAFE V4
--- NO HOOK / NO REMOTE INVOKE
+-- KINGHYUNWOO QUEST ANALYZER V5
+-- UI OBSERVER ONLY / NO REMOTE HOOK
 --==================================================
 
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Player = Players.LocalPlayer
+local PlayerGui = Player:WaitForChild("PlayerGui")
 
--- 기존 GUI 제거
 pcall(function()
-    CoreGui:FindFirstChild("KingHyunwooQuestLogger"):Destroy()
+    CoreGui:FindFirstChild("KingHyunwooQuestV5"):Destroy()
 end)
 
 local Gui = Instance.new("ScreenGui")
-Gui.Name = "KingHyunwooQuestLogger"
+Gui.Name = "KingHyunwooQuestV5"
 Gui.ResetOnSpawn = false
 Gui.Parent = CoreGui
 
 local Frame = Instance.new("Frame")
-Frame.Size = UDim2.new(0, 340, 0, 390)
-Frame.Position = UDim2.new(0.5, -170, 0.5, -195)
-Frame.BackgroundColor3 = Color3.fromRGB(25, 25, 32)
-Frame.BorderSizePixel = 0
+Frame.Size = UDim2.new(0, 350, 0, 400)
+Frame.Position = UDim2.new(0.5, -175, 0.5, -200)
+Frame.BackgroundColor3 = Color3.fromRGB(25, 28, 35)
 Frame.Active = true
 Frame.Draggable = true
 Frame.Parent = Gui
 
-local Corner = Instance.new("UICorner")
-Corner.CornerRadius = UDim.new(0, 10)
-Corner.Parent = Frame
+Instance.new("UICorner", Frame).CornerRadius = UDim.new(0, 10)
 
 local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, -45, 0, 38)
-Title.Position = UDim2.new(0, 10, 0, 0)
+Title.Size = UDim2.new(1, -40, 0, 40)
 Title.BackgroundTransparency = 1
-Title.Text = "KINGHYUNWOO QUEST LOGGER V4"
+Title.Text = "KINGHYUNWOO QUEST ANALYZER V5"
 Title.TextColor3 = Color3.fromRGB(100, 255, 180)
-Title.TextSize = 14
+Title.TextSize = 13
 Title.Font = Enum.Font.GothamBold
 Title.Parent = Frame
 
 local Close = Instance.new("TextButton")
 Close.Size = UDim2.new(0, 30, 0, 30)
-Close.Position = UDim2.new(1, -35, 0, 4)
+Close.Position = UDim2.new(1, -35, 0, 5)
 Close.Text = "X"
-Close.TextColor3 = Color3.new(1,1,1)
-Close.BackgroundColor3 = Color3.fromRGB(180, 55, 55)
 Close.Parent = Frame
 
 Close.MouseButton1Click:Connect(function()
@@ -56,19 +49,19 @@ Close.MouseButton1Click:Connect(function()
 end)
 
 local Scan = Instance.new("TextButton")
-Scan.Size = UDim2.new(1, -20, 0, 35)
-Scan.Position = UDim2.new(0, 10, 0, 43)
-Scan.Text = "퀘스트 Remote 다시 탐색"
-Scan.TextColor3 = Color3.new(1,1,1)
-Scan.BackgroundColor3 = Color3.fromRGB(45, 110, 85)
+Scan.Size = UDim2.new(1, -20, 0, 38)
+Scan.Position = UDim2.new(0, 10, 0, 45)
+Scan.BackgroundColor3 = Color3.fromRGB(45, 115, 85)
+Scan.TextColor3 = Color3.new(1, 1, 1)
+Scan.Text = "현재 퀘스트 UI 분석"
 Scan.Font = Enum.Font.GothamBold
 Scan.TextSize = 13
 Scan.Parent = Frame
 
 local Output = Instance.new("ScrollingFrame")
-Output.Size = UDim2.new(1, -20, 1, -95)
-Output.Position = UDim2.new(0, 10, 0, 85)
-Output.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+Output.Size = UDim2.new(1, -20, 1, -100)
+Output.Position = UDim2.new(0, 10, 0, 90)
+Output.BackgroundColor3 = Color3.fromRGB(15, 17, 22)
 Output.BorderSizePixel = 0
 Output.ScrollBarThickness = 5
 Output.CanvasSize = UDim2.new(0, 0, 0, 0)
@@ -79,59 +72,84 @@ Layout.Padding = UDim.new(0, 4)
 Layout.Parent = Output
 
 local Padding = Instance.new("UIPadding")
-Padding.PaddingTop = UDim.new(0, 6)
-Padding.PaddingLeft = UDim.new(0, 6)
+Padding.PaddingTop = UDim.new(0, 5)
+Padding.PaddingLeft = UDim.new(0, 5)
 Padding.Parent = Output
 
 local function AddLine(Text, Color)
     local Label = Instance.new("TextLabel")
-    Label.Size = UDim2.new(1, -12, 0, 30)
-    Label.BackgroundColor3 = Color3.fromRGB(35, 35, 43)
-    Label.TextColor3 = Color or Color3.fromRGB(220, 220, 220)
+    Label.Size = UDim2.new(1, -10, 0, 34)
+    Label.BackgroundColor3 = Color3.fromRGB(35, 38, 45)
+    Label.TextColor3 = Color or Color3.fromRGB(230, 230, 230)
     Label.Text = Text
     Label.TextSize = 11
     Label.Font = Enum.Font.Code
-    Label.TextXAlignment = Enum.TextXAlignment.Left
     Label.TextWrapped = true
+    Label.TextXAlignment = Enum.TextXAlignment.Left
     Label.Parent = Output
 
-    local C = Instance.new("UICorner")
-    C.CornerRadius = UDim.new(0, 5)
-    C.Parent = Label
+    Instance.new("UICorner", Label).CornerRadius = UDim.new(0, 5)
 end
 
-local function ScanRemotes()
-    for _, Child in ipairs(Output:GetChildren()) do
-        if Child:IsA("TextLabel") then
-            Child:Destroy()
+local function Analyze()
+    for _, Object in ipairs(Output:GetChildren()) do
+        if Object:IsA("TextLabel") then
+            Object:Destroy()
         end
     end
 
-    AddLine("탐색 시작...", Color3.fromRGB(100, 255, 180))
+    AddLine("분석 시작...", Color3.fromRGB(100, 255, 180))
 
-    local Found = 0
+    local Count = 0
+    local Keywords = {
+        "quest",
+        "level required",
+        "objective",
+        "confirm",
+        "reward",
+        "exp",
+        "deep diver",
+        "fugitive",
+        "fishman"
+    }
 
-    for _, Obj in ipairs(ReplicatedStorage:GetDescendants()) do
-        if Obj:IsA("RemoteFunction") or Obj:IsA("RemoteEvent") then
-            local Name = Obj.Name:lower()
+    for _, Object in ipairs(PlayerGui:GetDescendants()) do
+        if Object:IsA("TextLabel")
+        or Object:IsA("TextButton")
+        or Object:IsA("TextBox") then
 
-            if Name:find("quest") or Name:find("npc") then
-                Found += 1
+            local Text = tostring(Object.Text or "")
+            local Lower = Text:lower()
 
-                local Type = Obj:IsA("RemoteFunction")
-                    and "RemoteFunction"
-                    or "RemoteEvent"
+            if Text ~= "" then
+                local Relevant = false
 
-                AddLine(
-                    Type .. " | " .. Obj:GetFullName(),
-                    Color3.fromRGB(255, 220, 120)
-                )
+                for _, Keyword in ipairs(Keywords) do
+                    if Lower:find(Keyword, 1, true) then
+                        Relevant = true
+                        break
+                    end
+                end
+
+                if Relevant then
+                    Count += 1
+
+                    local Type = Object.ClassName
+                    AddLine(
+                        "[" .. Type .. "] " ..
+                        Text .. "\n경로: " ..
+                        Object:GetFullName(),
+                        Color3.fromRGB(255, 220, 130)
+                    )
+                end
             end
         end
     end
 
-    AddLine("탐색 완료: " .. Found .. "개 발견",
-        Color3.fromRGB(100, 255, 180))
+    AddLine(
+        "분석 완료: " .. Count .. "개 항목",
+        Color3.fromRGB(100, 255, 180)
+    )
 
     task.wait()
 
@@ -140,6 +158,8 @@ local function ScanRemotes()
     )
 end
 
-Scan.MouseButton1Click:Connect(ScanRemotes)
+Scan.MouseButton1Click:Connect(Analyze)
 
-ScanRemotes()
+AddLine("NPC 퀘스트 창을 먼저 열어주세요.")
+AddLine("그다음 분석 버튼을 눌러주세요.")
+
