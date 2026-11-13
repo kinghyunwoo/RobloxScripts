@@ -1,7 +1,8 @@
 
 --==================================================
 -- KINGHYUNWOO HUB
--- SPEED / CAMERA FLY / SUPER JUMP
+-- ZERO GRAVITY CAMERA FLY
+-- SPEED / SUPER JUMP / MINIMIZE
 --==================================================
 
 local Players = game:GetService("Players")
@@ -16,6 +17,16 @@ pcall(function()
     local old = CoreGui:FindFirstChild("KINGHYUNWOO")
     if old then old:Destroy() end
 end)
+
+-- SETTINGS
+local currentSpeed = 16
+local flying = false
+local superJumpEnabled = false
+
+local bodyVelocity
+local bodyGyro
+local flyLoop
+local oldAutoRotate
 
 -- GUI
 local gui = Instance.new("ScreenGui")
@@ -85,7 +96,7 @@ local minimize = make("TextButton", {
 
 Instance.new("UICorner", minimize).CornerRadius = UDim.new(0, 8)
 
--- 최소화
+-- MINIMIZE
 local minimized = false
 local normalSize = frame.Size
 
@@ -100,11 +111,14 @@ minimize.Activated:Connect(function()
         end
     end
 
-    frame.Size = minimized and UDim2.fromOffset(175, 43) or normalSize
+    frame.Size = minimized
+        and UDim2.fromOffset(175, 43)
+        or normalSize
+
     minimize.Text = minimized and "+" or "ㅡ"
 end)
 
--- 속도 입력
+-- SPEED
 local speedBox = make("TextBox", {
     Size = UDim2.new(1, -30, 0, 40),
     Position = UDim2.fromOffset(15, 58),
@@ -112,7 +126,6 @@ local speedBox = make("TextBox", {
     Text = "16",
     PlaceholderText = "이동속도 입력 (1~500)",
     TextColor3 = Color3.new(1, 1, 1),
-    PlaceholderColor3 = Color3.fromRGB(205, 180, 215),
     TextSize = 16,
     Font = Enum.Font.Gotham,
     ClearTextOnFocus = false,
@@ -164,17 +177,16 @@ local hint = make("TextLabel", {
     Size = UDim2.new(1, -20, 0, 28),
     Position = UDim2.fromOffset(10, 258),
     BackgroundTransparency = 1,
-    Text = "비행: 카메라 방향으로 이동",
+    Text = "무중력 비행: 조이스틱 + 카메라",
     TextColor3 = Color3.fromRGB(215, 195, 225),
     TextSize = 11,
     Font = Enum.Font.Gotham
 }, frame)
 
--- GUI 드래그
+-- DRAG
 title.Active = true
 
 local dragging = false
-local dragInput
 local dragStart
 local startPos
 
@@ -183,7 +195,6 @@ title.InputBegan:Connect(function(input)
     or input.UserInputType == Enum.UserInputType.Touch then
 
         dragging = true
-        dragInput = input
         dragStart = input.Position
         startPos = frame.Position
 
@@ -199,7 +210,7 @@ UserInputService.InputChanged:Connect(function(input)
     if not dragging then return end
 
     if input.UserInputType == Enum.UserInputType.MouseMovement
-    or input == dragInput then
+    or input.UserInputType == Enum.UserInputType.Touch then
 
         local delta = input.Position - dragStart
 
@@ -212,9 +223,7 @@ UserInputService.InputChanged:Connect(function(input)
     end
 end)
 
--- 캐릭터
-local currentSpeed = 16
-
+-- CHARACTER
 local function getCharacter()
     local character = player.Character
     if not character then return end
@@ -227,7 +236,7 @@ local function getCharacter()
     end
 end
 
--- 속도 적용
+-- SPEED APPLY
 speedApply.Activated:Connect(function()
     local value = tonumber(speedBox.Text)
 
@@ -246,8 +255,7 @@ speedApply.Activated:Connect(function()
     end
 end)
 
--- 슈퍼 점프
-local superJumpEnabled = false
+-- SUPER JUMP
 local normalUseJumpPower
 local normalJumpPower
 local normalJumpHeight
@@ -286,13 +294,8 @@ jumpToggle.Activated:Connect(function()
 end)
 
 --==================================================
--- 카메라 방향 비행
+-- ZERO GRAVITY FLY
 --==================================================
-
-local flying = false
-local bodyVelocity
-local bodyGyro
-local flyLoop
 
 local function stopFly()
     flying = false
@@ -315,8 +318,11 @@ local function stopFly()
     local _, humanoid = getCharacter()
 
     if humanoid then
+        humanoid.AutoRotate = oldAutoRotate ~= nil
+            and oldAutoRotate or true
+
         humanoid.PlatformStand = false
-        humanoid.AutoRotate = true
+        humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
     end
 
     flyToggle.Text = "비행: OFF"
@@ -324,27 +330,33 @@ end
 
 local function startFly()
     local _, humanoid, root = getCharacter()
+
     if not humanoid or not root then return end
 
     flying = true
+    oldAutoRotate = humanoid.AutoRotate
+
     flyToggle.Text = "비행: ON"
 
-    humanoid.PlatformStand = true
+    humanoid.PlatformStand = false
     humanoid.AutoRotate = false
+    humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
 
+    -- 무중력 상태를 유지하면서 이동/정지 제어
     bodyVelocity = Instance.new("BodyVelocity")
     bodyVelocity.MaxForce = Vector3.new(1e9, 1e9, 1e9)
-    bodyVelocity.P = 1e4
+    bodyVelocity.P = 50000
     bodyVelocity.Velocity = Vector3.zero
     bodyVelocity.Parent = root
 
     bodyGyro = Instance.new("BodyGyro")
     bodyGyro.MaxTorque = Vector3.new(1e9, 1e9, 1e9)
-    bodyGyro.P = 1e4
+    bodyGyro.P = 30000
+    bodyGyro.CFrame = root.CFrame
     bodyGyro.Parent = root
 
     flyLoop = RunService.RenderStepped:Connect(function()
-        if not flying or not root.Parent then
+        if not flying or not root.Parent or humanoid.Health <= 0 then
             stopFly()
             return
         end
@@ -352,25 +364,32 @@ local function startFly()
         local camera = workspace.CurrentCamera
         if not camera then return end
 
-        -- 카메라 방향을 기준으로 입력 방향 계산
+        -- 모바일 조이스틱 입력 읽기
         local moveDirection = humanoid.MoveDirection
-        local localMove = camera.CFrame:VectorToObjectSpace(moveDirection)
+
+        -- 카메라 기준 이동 입력
+        local localMove =
+            camera.CFrame:VectorToObjectSpace(moveDirection)
 
         local forward = -localMove.Z
         local right = localMove.X
 
+        -- 카메라가 바라보는 방향으로 이동
         local direction =
             camera.CFrame.LookVector * forward
             + camera.CFrame.RightVector * right
 
-        if direction.Magnitude > 1 then
+        if direction.Magnitude > 0.05 then
             direction = direction.Unit
+
+            bodyVelocity.Velocity =
+                direction * currentSpeed
+        else
+            -- 조이스틱을 놓으면 완전히 정지
+            bodyVelocity.Velocity = Vector3.zero
         end
 
-        -- 설정한 속도 적용
-        bodyVelocity.Velocity = direction * currentSpeed
-
-        -- 캐릭터도 카메라 방향을 바라봄
+        -- 카메라 방향 유지
         bodyGyro.CFrame = camera.CFrame
     end)
 end
@@ -383,7 +402,7 @@ flyToggle.Activated:Connect(function()
     end
 end)
 
--- 캐릭터 재생성
+-- RESPAWN
 player.CharacterAdded:Connect(function()
     stopFly()
     task.wait(0.5)
@@ -401,13 +420,13 @@ player.CharacterAdded:Connect(function()
     end
 end)
 
--- GUI 닫기
+-- CLOSE
 close.Activated:Connect(function()
     stopFly()
     gui:Destroy()
 end)
 
--- 최초 설정
+-- INITIALIZE
 task.defer(function()
     local _, humanoid = getCharacter()
 
