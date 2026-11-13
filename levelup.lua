@@ -1,450 +1,145 @@
 
 --==================================================
--- KINGHYUNWOO QUEST REMOTE LOGGER V3
--- Observe only: no RemoteFunction calls are sent
+-- KINGHYUNWOO QUEST LOGGER SAFE V4
+-- NO HOOK / NO REMOTE INVOKE
 --==================================================
 
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
-local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Player = Players.LocalPlayer
-local PlayerGui = Player:WaitForChild("PlayerGui")
 
-local GUI_NAME = "KingHyunwooQuestLogger"
-
--- Shared state: prevent installing the hook repeatedly
-local env = (getgenv and getgenv()) or _G
-local State = env.KHQuestLoggerState or {
-    hooked = false,
-    enabled = false,
-    logs = {},
-    onLog = nil
-}
-env.KHQuestLoggerState = State
-
--- Remove old GUI
+-- 기존 GUI 제거
 pcall(function()
-    local h = gethui and gethui()
-    if h and h:FindFirstChild(GUI_NAME) then
-        h[GUI_NAME]:Destroy()
-    end
+    CoreGui:FindFirstChild("KingHyunwooQuestLogger"):Destroy()
 end)
 
-pcall(function()
-    if CoreGui:FindFirstChild(GUI_NAME) then
-        CoreGui[GUI_NAME]:Destroy()
-    end
-end)
+local Gui = Instance.new("ScreenGui")
+Gui.Name = "KingHyunwooQuestLogger"
+Gui.ResetOnSpawn = false
+Gui.Parent = CoreGui
 
-pcall(function()
-    if PlayerGui:FindFirstChild(GUI_NAME) then
-        PlayerGui[GUI_NAME]:Destroy()
-    end
-end)
+local Frame = Instance.new("Frame")
+Frame.Size = UDim2.new(0, 340, 0, 390)
+Frame.Position = UDim2.new(0.5, -170, 0.5, -195)
+Frame.BackgroundColor3 = Color3.fromRGB(25, 25, 32)
+Frame.BorderSizePixel = 0
+Frame.Active = true
+Frame.Draggable = true
+Frame.Parent = Gui
 
---==================================================
--- GUI
---==================================================
-
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = GUI_NAME
-ScreenGui.ResetOnSpawn = false
-
-pcall(function()
-    ScreenGui.Parent = gethui()
-end)
-
-if not ScreenGui.Parent then
-    ScreenGui.Parent = CoreGui
-end
-
-local Main = Instance.new("Frame")
-Main.Size = UDim2.new(0, 350, 0, 440)
-Main.Position = UDim2.new(0.5, -175, 0.5, -220)
-Main.BackgroundColor3 = Color3.fromRGB(25, 30, 40)
-Main.BorderSizePixel = 0
-Main.ClipsDescendants = true
-Main.Parent = ScreenGui
-
-Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 10)
+local Corner = Instance.new("UICorner")
+Corner.CornerRadius = UDim.new(0, 10)
+Corner.Parent = Frame
 
 local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, -90, 0, 40)
+Title.Size = UDim2.new(1, -45, 0, 38)
 Title.Position = UDim2.new(0, 10, 0, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "KINGHYUNWOO | QUEST LOGGER"
-Title.TextColor3 = Color3.fromRGB(100, 255, 190)
+Title.Text = "KINGHYUNWOO QUEST LOGGER V4"
+Title.TextColor3 = Color3.fromRGB(100, 255, 180)
 Title.TextSize = 14
 Title.Font = Enum.Font.GothamBold
-Title.TextXAlignment = Enum.TextXAlignment.Left
-Title.Parent = Main
-
-local Minimize = Instance.new("TextButton")
-Minimize.Size = UDim2.new(0, 35, 0, 30)
-Minimize.Position = UDim2.new(1, -75, 0, 5)
-Minimize.Text = "-"
-Minimize.TextSize = 20
-Minimize.BackgroundColor3 = Color3.fromRGB(50, 60, 75)
-Minimize.TextColor3 = Color3.new(1, 1, 1)
-Minimize.Parent = Main
+Title.Parent = Frame
 
 local Close = Instance.new("TextButton")
-Close.Size = UDim2.new(0, 35, 0, 30)
-Close.Position = UDim2.new(1, -38, 0, 5)
+Close.Size = UDim2.new(0, 30, 0, 30)
+Close.Position = UDim2.new(1, -35, 0, 4)
 Close.Text = "X"
-Close.TextSize = 16
-Close.BackgroundColor3 = Color3.fromRGB(150, 55, 55)
-Close.TextColor3 = Color3.new(1, 1, 1)
-Close.Parent = Main
+Close.TextColor3 = Color3.new(1,1,1)
+Close.BackgroundColor3 = Color3.fromRGB(180, 55, 55)
+Close.Parent = Frame
 
-local Content = Instance.new("Frame")
-Content.Name = "Content"
-Content.Position = UDim2.new(0, 0, 0, 40)
-Content.Size = UDim2.new(1, 0, 1, -40)
-Content.BackgroundTransparency = 1
-Content.Parent = Main
+Close.MouseButton1Click:Connect(function()
+    Gui:Destroy()
+end)
 
-local LevelLabel = Instance.new("TextLabel")
-LevelLabel.Size = UDim2.new(1, -20, 0, 30)
-LevelLabel.Position = UDim2.new(0, 10, 0, 5)
-LevelLabel.BackgroundColor3 = Color3.fromRGB(35, 45, 55)
-LevelLabel.TextColor3 = Color3.fromRGB(255, 230, 100)
-LevelLabel.Text = "LEVEL: 탐색 중..."
-LevelLabel.TextSize = 15
-LevelLabel.Font = Enum.Font.GothamBold
-LevelLabel.Parent = Content
+local Scan = Instance.new("TextButton")
+Scan.Size = UDim2.new(1, -20, 0, 35)
+Scan.Position = UDim2.new(0, 10, 0, 43)
+Scan.Text = "퀘스트 Remote 다시 탐색"
+Scan.TextColor3 = Color3.new(1,1,1)
+Scan.BackgroundColor3 = Color3.fromRGB(45, 110, 85)
+Scan.Font = Enum.Font.GothamBold
+Scan.TextSize = 13
+Scan.Parent = Frame
 
-local Status = Instance.new("TextLabel")
-Status.Size = UDim2.new(1, -20, 0, 28)
-Status.Position = UDim2.new(0, 10, 0, 40)
-Status.BackgroundTransparency = 1
-Status.Text = "기록 대기 중"
-Status.TextColor3 = Color3.new(1, 1, 1)
-Status.TextSize = 13
-Status.Parent = Content
+local Output = Instance.new("ScrollingFrame")
+Output.Size = UDim2.new(1, -20, 1, -95)
+Output.Position = UDim2.new(0, 10, 0, 85)
+Output.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+Output.BorderSizePixel = 0
+Output.ScrollBarThickness = 5
+Output.CanvasSize = UDim2.new(0, 0, 0, 0)
+Output.Parent = Frame
 
-local StartButton = Instance.new("TextButton")
-StartButton.Size = UDim2.new(1, -20, 0, 38)
-StartButton.Position = UDim2.new(0, 10, 0, 72)
-StartButton.BackgroundColor3 = Color3.fromRGB(35, 150, 110)
-StartButton.Text = "기록 시작"
-StartButton.TextColor3 = Color3.new(1, 1, 1)
-StartButton.TextSize = 14
-StartButton.Font = Enum.Font.GothamBold
-StartButton.Parent = Content
+local Layout = Instance.new("UIListLayout")
+Layout.Padding = UDim.new(0, 4)
+Layout.Parent = Output
 
-local StopButton = Instance.new("TextButton")
-StopButton.Size = UDim2.new(0.5, -15, 0, 32)
-StopButton.Position = UDim2.new(0, 10, 0, 117)
-StopButton.BackgroundColor3 = Color3.fromRGB(150, 65, 65)
-StopButton.Text = "기록 중지"
-StopButton.TextColor3 = Color3.new(1, 1, 1)
-StopButton.TextSize = 13
-StopButton.Parent = Content
+local Padding = Instance.new("UIPadding")
+Padding.PaddingTop = UDim.new(0, 6)
+Padding.PaddingLeft = UDim.new(0, 6)
+Padding.Parent = Output
 
-local CopyButton = Instance.new("TextButton")
-CopyButton.Size = UDim2.new(0.5, -15, 0, 32)
-CopyButton.Position = UDim2.new(0.5, 5, 0, 117)
-CopyButton.BackgroundColor3 = Color3.fromRGB(65, 90, 150)
-CopyButton.Text = "기록 복사"
-CopyButton.TextColor3 = Color3.new(1, 1, 1)
-CopyButton.TextSize = 13
-CopyButton.Parent = Content
+local function AddLine(Text, Color)
+    local Label = Instance.new("TextLabel")
+    Label.Size = UDim2.new(1, -12, 0, 30)
+    Label.BackgroundColor3 = Color3.fromRGB(35, 35, 43)
+    Label.TextColor3 = Color or Color3.fromRGB(220, 220, 220)
+    Label.Text = Text
+    Label.TextSize = 11
+    Label.Font = Enum.Font.Code
+    Label.TextXAlignment = Enum.TextXAlignment.Left
+    Label.TextWrapped = true
+    Label.Parent = Output
 
-local LogBox = Instance.new("TextBox")
-LogBox.Size = UDim2.new(1, -20, 1, -165)
-LogBox.Position = UDim2.new(0, 10, 0, 155)
-LogBox.BackgroundColor3 = Color3.fromRGB(15, 20, 28)
-LogBox.TextColor3 = Color3.fromRGB(170, 255, 190)
-LogBox.TextSize = 11
-LogBox.Font = Enum.Font.Code
-LogBox.TextXAlignment = Enum.TextXAlignment.Left
-LogBox.TextYAlignment = Enum.TextYAlignment.Top
-LogBox.TextWrapped = true
-LogBox.MultiLine = true
-LogBox.ClearTextOnFocus = false
-LogBox.TextEditable = false
-LogBox.Text = "기록된 호출이 여기에 표시됩니다."
-LogBox.Parent = Content
+    local C = Instance.new("UICorner")
+    C.CornerRadius = UDim.new(0, 5)
+    C.Parent = Label
+end
 
---==================================================
--- DRAG
---==================================================
-
-local dragging = false
-local dragStart
-local startPos
-
-Title.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1
-    or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
-        dragStart = input.Position
-        startPos = Main.Position
+local function ScanRemotes()
+    for _, Child in ipairs(Output:GetChildren()) do
+        if Child:IsA("TextLabel") then
+            Child:Destroy()
+        end
     end
-end)
 
-UserInputService.InputChanged:Connect(function(input)
-    if dragging and (
-        input.UserInputType == Enum.UserInputType.MouseMovement
-        or input.UserInputType == Enum.UserInputType.Touch
-    ) then
-        local delta = input.Position - dragStart
+    AddLine("탐색 시작...", Color3.fromRGB(100, 255, 180))
 
-        Main.Position = UDim2.new(
-            startPos.X.Scale,
-            startPos.X.Offset + delta.X,
-            startPos.Y.Scale,
-            startPos.Y.Offset + delta.Y
-        )
-    end
-end)
+    local Found = 0
 
-UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1
-    or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = false
-    end
-end)
+    for _, Obj in ipairs(ReplicatedStorage:GetDescendants()) do
+        if Obj:IsA("RemoteFunction") or Obj:IsA("RemoteEvent") then
+            local Name = Obj.Name:lower()
 
---==================================================
--- MINIMIZE / CLOSE
---==================================================
+            if Name:find("quest") or Name:find("npc") then
+                Found += 1
 
-local minimized = false
+                local Type = Obj:IsA("RemoteFunction")
+                    and "RemoteFunction"
+                    or "RemoteEvent"
 
-Minimize.Activated:Connect(function()
-    minimized = not minimized
-
-    Content.Visible = not minimized
-    Main.Size = minimized
-        and UDim2.new(0, 350, 0, 42)
-        or UDim2.new(0, 350, 0, 440)
-
-    Minimize.Text = minimized and "+" or "-"
-end)
-
-Close.Activated:Connect(function()
-    State.enabled = false
-    State.onLog = nil
-    ScreenGui:Destroy()
-end)
-
---==================================================
--- LEVEL DETECTION
---==================================================
-
-local function FindLevel()
-    local candidates = {}
-
-    local function inspect(root)
-        for _, obj in ipairs(root:GetDescendants()) do
-            if obj:IsA("TextLabel") or obj:IsA("TextButton") then
-                local number = obj.Text:match("^%s*(%d+)%s*$")
-
-                if number then
-                    local color = obj.TextColor3
-                    local pos = obj.AbsolutePosition
-                    local size = obj.AbsoluteSize
-                    local camera = workspace.CurrentCamera
-
-                    if camera then
-                        local screenSize = camera.ViewportSize
-
-                        local yellow =
-                            color.R > 0.65
-                            and color.G > 0.55
-                            and color.B < 0.55
-
-                        local bottomCenter =
-                            pos.Y > screenSize.Y * 0.45
-                            and math.abs(
-                                (pos.X + size.X / 2)
-                                - screenSize.X / 2
-                            ) < screenSize.X * 0.3
-
-                        if yellow and bottomCenter then
-                            table.insert(candidates, tonumber(number))
-                        end
-                    end
-                end
+                AddLine(
+                    Type .. " | " .. Obj:GetFullName(),
+                    Color3.fromRGB(255, 220, 120)
+                )
             end
         end
     end
 
-    pcall(function() inspect(PlayerGui) end)
-    pcall(function() inspect(CoreGui) end)
+    AddLine("탐색 완료: " .. Found .. "개 발견",
+        Color3.fromRGB(100, 255, 180))
 
-    table.sort(candidates, function(a, b)
-        return a > b
-    end)
+    task.wait()
 
-    return candidates[1]
+    Output.CanvasSize = UDim2.new(
+        0, 0, 0, Layout.AbsoluteContentSize.Y + 15
+    )
 end
 
-task.spawn(function()
-    while ScreenGui.Parent do
-        local level = FindLevel()
+Scan.MouseButton1Click:Connect(ScanRemotes)
 
-        LevelLabel.Text = level
-            and "LEVEL: " .. level
-            or "LEVEL: 인식 대기 중..."
-
-        task.wait(1)
-    end
-end)
-
---==================================================
--- LOG FORMATTER
---==================================================
-
-local function FormatValue(value, depth)
-    depth = depth or 0
-
-    if depth > 3 then
-        return "{...}"
-    end
-
-    if typeof(value) == "Instance" then
-        return value.ClassName .. "(" .. value:GetFullName() .. ")"
-    end
-
-    if type(value) ~= "table" then
-        return tostring(value)
-    end
-
-    local parts = {}
-
-    for key, item in pairs(value) do
-        table.insert(
-            parts,
-            "[" .. tostring(key) .. "]="
-            .. FormatValue(item, depth + 1)
-        )
-
-        if #parts >= 20 then
-            table.insert(parts, "...")
-            break
-        end
-    end
-
-    return "{" .. table.concat(parts, ", ") .. "}"
-end
-
-local function AddLog(line)
-    table.insert(State.logs, line)
-
-    if #State.logs > 80 then
-        table.remove(State.logs, 1)
-    end
-
-    if State.onLog then
-        pcall(State.onLog)
-    end
-end
-
-State.onLog = function()
-    LogBox.Text = table.concat(State.logs, "\n")
-    LogBox.CursorPosition = -1
-    LogBox.SelectionStart = -1
-end
-
---==================================================
--- OBSERVE QUEST REMOTE CALLS
---==================================================
-
-local targets = {
-    Quest = true,
-    CheckQuest = true,
-    QuestRepeat = true
-}
-
-if not State.hooked then
-    if type(hookmetamethod) ~= "function"
-    or type(getnamecallmethod) ~= "function"
-    or type(newcclosure) ~= "function" then
-
-        Status.Text = "이 실행기는 호출 기록 기능을 지원하지 않음"
-    else
-        local oldNamecall
-
-        oldNamecall = hookmetamethod(game, "__namecall", newcclosure(
-            function(self, ...)
-                local method = getnamecallmethod()
-
-                local shouldLog = State.enabled
-                    and method == "InvokeServer"
-                    and typeof(self) == "Instance"
-                    and self:IsA("RemoteFunction")
-                    and targets[self.Name] == true
-
-                if not shouldLog then
-                    return oldNamecall(self, ...)
-                end
-
-                local args = table.pack(...)
-
-                AddLog(
-                    "\n[호출]\n"
-                    .. "Remote: " .. self:GetFullName() .. "\n"
-                    .. "인자: " .. FormatValue(args)
-                )
-
-                local results = table.pack(oldNamecall(self, ...))
-
-                AddLog(
-                    "[반환값]\n"
-                    .. FormatValue(results)
-                )
-
-                return table.unpack(results, 1, results.n)
-            end
-        ))
-
-        State.hooked = true
-        Status.Text = "호출 기록 준비 완료"
-    end
-end
-
---==================================================
--- BUTTONS
---==================================================
-
-StartButton.Activated:Connect(function()
-    State.enabled = true
-    Status.Text = "기록 중 | 게임에서 퀘스트를 직접 수락해 줘"
-    StartButton.Text = "기록 중..."
-    StartButton.BackgroundColor3 = Color3.fromRGB(180, 110, 35)
-end)
-
-StopButton.Activated:Connect(function()
-    State.enabled = false
-    Status.Text = "기록 중지됨"
-    StartButton.Text = "기록 시작"
-    StartButton.BackgroundColor3 = Color3.fromRGB(35, 150, 110)
-end)
-
-CopyButton.Activated:Connect(function()
-    if #State.logs == 0 then
-        Status.Text = "아직 기록이 없어"
-        return
-    end
-
-    if setclipboard then
-        local success = pcall(
-            setclipboard,
-            table.concat(State.logs, "\n")
-        )
-
-        Status.Text = success
-            and "기록 복사 성공"
-            or "복사 실패"
-    else
-        Status.Text = "클립보드 기능을 지원하지 않음"
-    end
-end)
-
-Status.Text = State.hooked
-    and "준비 완료"
-    or Status.Text
+ScanRemotes()
