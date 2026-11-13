@@ -1,7 +1,7 @@
 
 --==================================================
 -- KINGHYUNWOO HUB
--- Speed / Fly / Super Jump / Minimize
+-- SPEED / CAMERA FLY / SUPER JUMP
 --==================================================
 
 local Players = game:GetService("Players")
@@ -17,24 +17,11 @@ pcall(function()
     if old then old:Destroy() end
 end)
 
+-- GUI
 local gui = Instance.new("ScreenGui")
 gui.Name = "KINGHYUNWOO"
 gui.ResetOnSpawn = false
 gui.Parent = CoreGui
-
-local frame = Instance.new("Frame")
-frame.Size = UDim2.fromOffset(285, 300)
-frame.Position = UDim2.new(0.5, -142, 0.5, -150)
-frame.BackgroundColor3 = Color3.fromRGB(35, 18, 55)
-frame.BorderSizePixel = 0
-frame.Active = true
-frame.Parent = gui
-Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 14)
-
-local stroke = Instance.new("UIStroke")
-stroke.Color = Color3.fromRGB(225, 90, 220)
-stroke.Thickness = 2
-stroke.Parent = frame
 
 local function make(className, props, parent)
     local obj = Instance.new(className)
@@ -45,12 +32,27 @@ local function make(className, props, parent)
     return obj
 end
 
+local frame = make("Frame", {
+    Size = UDim2.fromOffset(285, 300),
+    Position = UDim2.new(0.5, -142, 0.5, -150),
+    BackgroundColor3 = Color3.fromRGB(35, 18, 55),
+    BorderSizePixel = 0,
+    Active = true
+}, gui)
+
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 14)
+
+local stroke = Instance.new("UIStroke")
+stroke.Color = Color3.fromRGB(225, 90, 220)
+stroke.Thickness = 2
+stroke.Parent = frame
+
 local title = make("TextLabel", {
     Size = UDim2.new(1, 0, 0, 43),
     BackgroundColor3 = Color3.fromRGB(155, 55, 205),
     Text = "KINGHYUNWOO HUB",
     TextColor3 = Color3.new(1, 1, 1),
-    TextSize = 19,
+    TextSize = 18,
     Font = Enum.Font.GothamBold,
     BorderSizePixel = 0
 }, frame)
@@ -83,36 +85,26 @@ local minimize = make("TextButton", {
 
 Instance.new("UICorner", minimize).CornerRadius = UDim.new(0, 8)
 
+-- 최소화
 local minimized = false
 local normalSize = frame.Size
 
 minimize.Activated:Connect(function()
     minimized = not minimized
 
-    if minimized then
-        for _, child in ipairs(frame:GetChildren()) do
-            if child ~= title and child ~= close and child ~= minimize
-            and not child:IsA("UICorner") and not child:IsA("UIStroke") then
-                child.Visible = false
-            end
+    for _, child in ipairs(frame:GetChildren()) do
+        if child ~= title and child ~= close and child ~= minimize
+        and not child:IsA("UICorner")
+        and not child:IsA("UIStroke") then
+            child.Visible = not minimized
         end
-
-        frame.Size = UDim2.fromOffset(175, 43)
-        minimize.Text = "+"
-    else
-        frame.Size = normalSize
-
-        for _, child in ipairs(frame:GetChildren()) do
-            if child ~= title and child ~= close and child ~= minimize
-            and not child:IsA("UICorner") and not child:IsA("UIStroke") then
-                child.Visible = true
-            end
-        end
-
-        minimize.Text = "ㅡ"
     end
+
+    frame.Size = minimized and UDim2.fromOffset(175, 43) or normalSize
+    minimize.Text = minimized and "+" or "ㅡ"
 end)
 
+-- 속도 입력
 local speedBox = make("TextBox", {
     Size = UDim2.new(1, -30, 0, 40),
     Position = UDim2.fromOffset(15, 58),
@@ -207,7 +199,7 @@ UserInputService.InputChanged:Connect(function(input)
     if not dragging then return end
 
     if input.UserInputType == Enum.UserInputType.MouseMovement
-    or input.UserInputType == Enum.UserInputType.Touch then
+    or input == dragInput then
 
         local delta = input.Position - dragStart
 
@@ -220,6 +212,7 @@ UserInputService.InputChanged:Connect(function(input)
     end
 end)
 
+-- 캐릭터
 local currentSpeed = 16
 
 local function getCharacter()
@@ -234,7 +227,7 @@ local function getCharacter()
     end
 end
 
--- 이동속도 적용
+-- 속도 적용
 speedApply.Activated:Connect(function()
     local value = tonumber(speedBox.Text)
 
@@ -293,7 +286,7 @@ jumpToggle.Activated:Connect(function()
 end)
 
 --==================================================
--- 비행 시스템 (상하좌우 모두 설정 속도 적용)
+-- 카메라 방향 비행
 --==================================================
 
 local flying = false
@@ -331,7 +324,6 @@ end
 
 local function startFly()
     local _, humanoid, root = getCharacter()
-
     if not humanoid or not root then return end
 
     flying = true
@@ -343,6 +335,7 @@ local function startFly()
     bodyVelocity = Instance.new("BodyVelocity")
     bodyVelocity.MaxForce = Vector3.new(1e9, 1e9, 1e9)
     bodyVelocity.P = 1e4
+    bodyVelocity.Velocity = Vector3.zero
     bodyVelocity.Parent = root
 
     bodyGyro = Instance.new("BodyGyro")
@@ -359,44 +352,25 @@ local function startFly()
         local camera = workspace.CurrentCamera
         if not camera then return end
 
-        -- 이동 입력
+        -- 카메라 방향을 기준으로 입력 방향 계산
         local moveDirection = humanoid.MoveDirection
+        local localMove = camera.CFrame:VectorToObjectSpace(moveDirection)
 
-        -- 카메라 기준 상하좌우 방향
-        local cameraForward = camera.CFrame.LookVector
-        local cameraRight = camera.CFrame.RightVector
+        local forward = -localMove.Z
+        local right = localMove.X
 
-        local horizontalMove = Vector3.new(
-            moveDirection.X,
-            0,
-            moveDirection.Z
-        )
+        local direction =
+            camera.CFrame.LookVector * forward
+            + camera.CFrame.RightVector * right
 
-        local verticalMove = 0
-
-        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-            verticalMove = 1
-        elseif UserInputService:IsKeyDown(Enum.KeyCode.LeftControl)
-        or UserInputService:IsKeyDown(Enum.KeyCode.C) then
-            verticalMove = -1
-        end
-
-        -- 모바일 점프 버튼 지원
-        if UserInputService.TouchEnabled then
-            if humanoid.Jump then
-                verticalMove = 1
-            end
-        end
-
-        local direction = horizontalMove + Vector3.new(0, verticalMove, 0)
-
-        if direction.Magnitude > 0 then
+        if direction.Magnitude > 1 then
             direction = direction.Unit
         end
 
-        -- 모든 방향에 현재 설정 속도 적용
+        -- 설정한 속도 적용
         bodyVelocity.Velocity = direction * currentSpeed
 
+        -- 캐릭터도 카메라 방향을 바라봄
         bodyGyro.CFrame = camera.CFrame
     end)
 end
@@ -409,7 +383,7 @@ flyToggle.Activated:Connect(function()
     end
 end)
 
--- 캐릭터 재생성 시 설정 복원
+-- 캐릭터 재생성
 player.CharacterAdded:Connect(function()
     stopFly()
     task.wait(0.5)
@@ -427,12 +401,13 @@ player.CharacterAdded:Connect(function()
     end
 end)
 
--- 닫기
+-- GUI 닫기
 close.Activated:Connect(function()
     stopFly()
     gui:Destroy()
 end)
 
+-- 최초 설정
 task.defer(function()
     local _, humanoid = getCharacter()
 
