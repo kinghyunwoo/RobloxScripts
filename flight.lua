@@ -1,5 +1,8 @@
--- PURPLE PINK HUB
+
+--==================================================
+-- KINGHYUNWOO HUB
 -- Speed / Fly / Super Jump / Minimize
+--==================================================
 
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
@@ -10,12 +13,12 @@ local player = Players.LocalPlayer
 if not player then return end
 
 pcall(function()
-    local old = CoreGui:FindFirstChild("PurplePinkHub")
+    local old = CoreGui:FindFirstChild("KINGHYUNWOO")
     if old then old:Destroy() end
 end)
 
 local gui = Instance.new("ScreenGui")
-gui.Name = "PurplePinkHub"
+gui.Name = "KINGHYUNWOO"
 gui.ResetOnSpawn = false
 gui.Parent = CoreGui
 
@@ -45,7 +48,7 @@ end
 local title = make("TextLabel", {
     Size = UDim2.new(1, 0, 0, 43),
     BackgroundColor3 = Color3.fromRGB(155, 55, 205),
-    Text = "PURPLE PINK HUB",
+    Text = "KINGHYUNWOO HUB",
     TextColor3 = Color3.new(1, 1, 1),
     TextSize = 19,
     Font = Enum.Font.GothamBold,
@@ -204,7 +207,7 @@ UserInputService.InputChanged:Connect(function(input)
     if not dragging then return end
 
     if input.UserInputType == Enum.UserInputType.MouseMovement
-    or input == dragInput then
+    or input.UserInputType == Enum.UserInputType.Touch then
 
         local delta = input.Position - dragStart
 
@@ -231,7 +234,7 @@ local function getCharacter()
     end
 end
 
--- 이동속도
+-- 이동속도 적용
 speedApply.Activated:Connect(function()
     local value = tonumber(speedBox.Text)
 
@@ -250,7 +253,7 @@ speedApply.Activated:Connect(function()
     end
 end)
 
--- 슈퍼 점프 ON/OFF
+-- 슈퍼 점프
 local superJumpEnabled = false
 local normalUseJumpPower
 local normalJumpPower
@@ -289,7 +292,10 @@ jumpToggle.Activated:Connect(function()
     end
 end)
 
--- 비행
+--==================================================
+-- 비행 시스템 (상하좌우 모두 설정 속도 적용)
+--==================================================
+
 local flying = false
 local bodyVelocity
 local bodyGyro
@@ -353,17 +359,44 @@ local function startFly()
         local camera = workspace.CurrentCamera
         if not camera then return end
 
-        local localMove =
-            camera.CFrame:VectorToObjectSpace(humanoid.MoveDirection)
+        -- 이동 입력
+        local moveDirection = humanoid.MoveDirection
 
-        local rightAmount = localMove.X
-        local forwardAmount = -localMove.Z
+        -- 카메라 기준 상하좌우 방향
+        local cameraForward = camera.CFrame.LookVector
+        local cameraRight = camera.CFrame.RightVector
 
-        local direction =
-            camera.CFrame.RightVector * rightAmount
-            + camera.CFrame.LookVector * forwardAmount
+        local horizontalMove = Vector3.new(
+            moveDirection.X,
+            0,
+            moveDirection.Z
+        )
 
-        bodyVelocity.Velocity = direction * 55
+        local verticalMove = 0
+
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            verticalMove = 1
+        elseif UserInputService:IsKeyDown(Enum.KeyCode.LeftControl)
+        or UserInputService:IsKeyDown(Enum.KeyCode.C) then
+            verticalMove = -1
+        end
+
+        -- 모바일 점프 버튼 지원
+        if UserInputService.TouchEnabled then
+            if humanoid.Jump then
+                verticalMove = 1
+            end
+        end
+
+        local direction = horizontalMove + Vector3.new(0, verticalMove, 0)
+
+        if direction.Magnitude > 0 then
+            direction = direction.Unit
+        end
+
+        -- 모든 방향에 현재 설정 속도 적용
+        bodyVelocity.Velocity = direction * currentSpeed
+
         bodyGyro.CFrame = camera.CFrame
     end)
 end
