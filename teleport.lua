@@ -1,8 +1,10 @@
 
 --========================================================
--- KINGHYUNWOO TELEPORT GUI
+-- KINGHYUNWOO | PLAYER TELEPORT GUI
 -- NEON PURPLE + PINK EDITION
--- TELEPORT / FOLLOW / MINIMIZE / RESTORE / DRAG
+-- ORIGINAL FUNCTIONS PRESERVED
+-- FIXED: MINIMIZE / RESTORE / CONTENT VISIBILITY
+-- MOBILE TOUCH + PC MOUSE SUPPORT
 --========================================================
 
 local Players = game:GetService("Players")
@@ -13,7 +15,7 @@ local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 --========================================================
--- CLEANUP
+-- CLEAN OLD GUI
 --========================================================
 
 local old = PlayerGui:FindFirstChild("kinghyunwoo")
@@ -35,23 +37,15 @@ local RED = Color3.fromRGB(180, 40, 80)
 local GREEN = Color3.fromRGB(45, 145, 100)
 
 --========================================================
--- STATE
---========================================================
-
-local selected = nil
-local following = false
-local minimized = false
-local followConnection = nil
-local buttons = {}
-
---========================================================
 -- GUI
 --========================================================
 
 local gui = Instance.new("ScreenGui")
 gui.Name = "kinghyunwoo"
 gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+gui.DisplayOrder = 999
 gui.Parent = PlayerGui
 
 local frame = Instance.new("Frame")
@@ -60,8 +54,8 @@ frame.Size = UDim2.fromOffset(290, 390)
 frame.Position = UDim2.new(0.5, -145, 0.5, -195)
 frame.BackgroundColor3 = BG
 frame.BorderSizePixel = 0
-frame.ClipsDescendants = true
 frame.Active = true
+frame.ClipsDescendants = true
 frame.Parent = gui
 
 local corner = Instance.new("UICorner")
@@ -74,10 +68,26 @@ outline.Thickness = 1.7
 outline.Parent = frame
 
 --========================================================
+-- FORWARD DECLARATIONS
+--========================================================
+
+local list
+local status
+local teleport
+local followButton
+local subtitle
+
+local selected = nil
+local following = false
+local followConnection = nil
+local minimized = false
+
+--========================================================
 -- TITLE BAR
 --========================================================
 
 local titleBar = Instance.new("Frame")
+titleBar.Name = "TitleBar"
 titleBar.Size = UDim2.new(1, 0, 0, 48)
 titleBar.BackgroundColor3 = PANEL
 titleBar.BorderSizePixel = 0
@@ -116,7 +126,6 @@ local function makeButton(parent, text, size, position, color)
     button.TextSize = 13
     button.Font = Enum.Font.GothamBold
     button.AutoButtonColor = true
-    button.ZIndex = 4
     button.Parent = parent
 
     local c = Instance.new("UICorner")
@@ -127,7 +136,7 @@ local function makeButton(parent, text, size, position, color)
 end
 
 --========================================================
--- TITLE BUTTONS
+-- MINIMIZE / CLOSE BUTTONS
 --========================================================
 
 local minimize = makeButton(
@@ -137,6 +146,7 @@ local minimize = makeButton(
     UDim2.new(1, -76, 0, 9),
     PURPLE
 )
+minimize.ZIndex = 4
 
 local close = makeButton(
     titleBar,
@@ -145,16 +155,16 @@ local close = makeButton(
     UDim2.new(1, -38, 0, 9),
     RED
 )
+close.ZIndex = 4
 
 --========================================================
 -- CONTENT CONTAINER
--- All content hidden together when minimized
 --========================================================
 
 local content = Instance.new("Frame")
 content.Name = "Content"
-content.Size = UDim2.new(1, 0, 1, -48)
 content.Position = UDim2.fromOffset(0, 48)
+content.Size = UDim2.new(1, 0, 1, -48)
 content.BackgroundTransparency = 1
 content.BorderSizePixel = 0
 content.Parent = frame
@@ -163,7 +173,7 @@ content.Parent = frame
 -- SUBTITLE
 --========================================================
 
-local subtitle = Instance.new("TextLabel")
+subtitle = Instance.new("TextLabel")
 subtitle.Size = UDim2.new(1, -24, 0, 20)
 subtitle.Position = UDim2.fromOffset(12, 0)
 subtitle.BackgroundTransparency = 1
@@ -178,7 +188,7 @@ subtitle.Parent = content
 -- PLAYER LIST
 --========================================================
 
-local list = Instance.new("ScrollingFrame")
+list = Instance.new("ScrollingFrame")
 list.Name = "PlayerList"
 list.Position = UDim2.fromOffset(12, 30)
 list.Size = UDim2.new(1, -24, 1, -112)
@@ -210,9 +220,9 @@ layout.Parent = list
 -- STATUS
 --========================================================
 
-local status = Instance.new("TextLabel")
+status = Instance.new("TextLabel")
 status.Size = UDim2.new(1, -24, 0, 20)
-status.Position = UDim2.new(0, 12, 1, -80)
+status.Position = UDim2.new(0, 12, 1, -79)
 status.BackgroundTransparency = 1
 status.Text = "선택된 플레이어: 없음"
 status.TextColor3 = MUTED
@@ -225,7 +235,7 @@ status.Parent = content
 -- TELEPORT BUTTON
 --========================================================
 
-local teleport = makeButton(
+teleport = makeButton(
     content,
     "순간이동",
     UDim2.new(0.5, -17, 0, 39),
@@ -242,7 +252,7 @@ teleportStroke.Parent = teleport
 -- FOLLOW BUTTON
 --========================================================
 
-local followButton = makeButton(
+followButton = makeButton(
     content,
     "추적 시작",
     UDim2.new(0.5, -17, 0, 39),
@@ -251,7 +261,25 @@ local followButton = makeButton(
 )
 
 --========================================================
--- FOLLOW STOP
+-- MINIMIZE / RESTORE SYSTEM
+--========================================================
+
+minimize.MouseButton1Click:Connect(function()
+    minimized = not minimized
+
+    if minimized then
+        content.Visible = false
+        frame.Size = UDim2.fromOffset(290, 48)
+        minimize.Text = "+"
+    else
+        frame.Size = UDim2.fromOffset(290, 390)
+        content.Visible = true
+        minimize.Text = "−"
+    end
+end)
+
+--========================================================
+-- FOLLOW SYSTEM
 --========================================================
 
 local function stopFollowing(message)
@@ -270,10 +298,6 @@ local function stopFollowing(message)
     end
 end
 
---========================================================
--- FOLLOW START
---========================================================
-
 local function startFollowing()
     if not selected then
         status.Text = "플레이어를 먼저 선택하세요!"
@@ -289,8 +313,12 @@ local function startFollowing()
     local targetRoot = targetCharacter
         and targetCharacter:FindFirstChild("HumanoidRootPart")
 
-    if not targetRoot then
-        status.Text = "대상 캐릭터를 찾을 수 없습니다."
+    local character = LocalPlayer.Character
+    local myRoot = character
+        and character:FindFirstChild("HumanoidRootPart")
+
+    if not targetRoot or not myRoot then
+        status.Text = "대상의 캐릭터를 찾을 수 없습니다."
         return
     end
 
@@ -319,20 +347,19 @@ local function startFollowing()
         local targetRoot = target
             and target:FindFirstChild("HumanoidRootPart")
 
-        local character = LocalPlayer.Character
-        local myRoot = character
-            and character:FindFirstChild("HumanoidRootPart")
+        local myCharacter = LocalPlayer.Character
+        local myRoot = myCharacter
+            and myCharacter:FindFirstChild("HumanoidRootPart")
 
         if not targetRoot or not myRoot then
             stopFollowing("캐릭터를 찾을 수 없어 추적 중지")
             return
         end
 
-        -- 대상 뒤쪽 3 스터드 위치 유지
-        local destination =
-            targetRoot.CFrame * CFrame.new(0, 0, 3)
+        local destination = targetRoot.CFrame
+            * CFrame.new(0, 0, 3)
 
-        character:PivotTo(destination)
+        myCharacter:PivotTo(destination)
     end)
 end
 
@@ -347,6 +374,8 @@ end)
 --========================================================
 -- PLAYER SELECTION
 --========================================================
+
+local buttons = {}
 
 local function updateSelection()
     for player, button in pairs(buttons) do
@@ -367,10 +396,6 @@ local function updateSelection()
         status.Text = "선택된 플레이어: 없음"
     end
 end
-
---========================================================
--- REFRESH PLAYER LIST
---========================================================
 
 local function refresh()
     for _, child in ipairs(list:GetChildren()) do
@@ -410,7 +435,6 @@ local function refresh()
             buttons[player] = button
 
             button.MouseButton1Click:Connect(function()
-
                 if selected ~= player and following then
                     stopFollowing("대상이 변경되어 추적 중지")
                 end
@@ -465,23 +489,21 @@ teleport.MouseButton1Click:Connect(function()
 end)
 
 --========================================================
--- MINIMIZE / RESTORE
+-- PLAYER EVENTS
 --========================================================
 
-minimize.MouseButton1Click:Connect(function()
-    minimized = not minimized
+Players.PlayerAdded:Connect(refresh)
 
-    if minimized then
-        -- 제목 표시줄만 남김
-        content.Visible = false
-        frame.Size = UDim2.fromOffset(290, 48)
-        minimize.Text = "+"
-    else
-        -- 전체 창 복구
-        content.Visible = true
-        frame.Size = UDim2.fromOffset(290, 390)
-        minimize.Text = "−"
+Players.PlayerRemoving:Connect(function(player)
+    if selected == player then
+        if following then
+            stopFollowing("대상이 나갔습니다.")
+        end
+
+        selected = nil
     end
+
+    refresh()
 end)
 
 --========================================================
@@ -530,31 +552,15 @@ UserInputService.InputChanged:Connect(function(input)
 end)
 
 --========================================================
--- PLAYER EVENTS
---========================================================
-
-Players.PlayerAdded:Connect(refresh)
-
-Players.PlayerRemoving:Connect(function(player)
-    if selected == player then
-        if following then
-            stopFollowing("대상이 나갔습니다.")
-        end
-
-        selected = nil
-    end
-
-    refresh()
-end)
-
---========================================================
--- CLOSE / CLEANUP
+-- CLOSE CLEANUP
 --========================================================
 
 close.MouseButton1Click:Connect(function()
     stopFollowing()
 
-    gui:Destroy()
+    if gui then
+        gui:Destroy()
+    end
 end)
 
 --========================================================
@@ -563,4 +569,4 @@ end)
 
 refresh()
 
-print("[KINGHYUNWOO] TELEPORT GUI LOADED")
+print("[KINGHYUNWOO] TELEPORT + FOLLOW GUI LOADED")
